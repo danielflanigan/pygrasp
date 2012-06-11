@@ -1,0 +1,69 @@
+\documentclass[10pt,english]{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[T1]{fontenc}
+\usepackage[latin9]{inputenc}
+\usepackage[tmargin=1in, bmargin=1in, lmargin=1in, rmargin=1in]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5\baselineskip}
+
+% General math
+\newcommand{\ii}{\mathrm{i}}
+\newcommand{\dif}{\mathrm{d}}
+\newcommand{\diff}[ 2 ]{\mathrm{d}^{#1} #2 \,}
+\newcommand{\dd}[ 2 ]{\frac{\dif #1}{\dif #2}}
+\newcommand{\unit}[ 1 ]{\, \textrm{#1}}
+\newcommand{\pp}[ 2 ]{\frac{\partial #1}{\partial #2}}
+\renewcommand{\vec}[ 1 ]{\boldsymbol{\mathrm{#1}}}
+
+% Quantum mechanics
+\newcommand{\bra} [ 2 ] [ ] {\mathinner{\langle #2 |}_{#1}}
+\newcommand{\ket} [ 2 ] [ ] {\mathinner{| #2 \rangle}_{#1}}
+\newcommand{\braket} [ 3 ] [ ] {\mathinner{\langle #2 | #3 \rangle}_{#1}}
+\newcommand{\Bra} [ 2 ] [ ] {\mathinner{\left< #2 \right|}_{#1}}
+\newcommand{\Ket} [ 2 ] [ ] {\mathinner{\left| #2 \right>}_{#1}}
+\newcommand{\Braket} [ 3 ] [ ] {\mathinner{\left< #2 \mid #3 \right>}_{#1}}
+
+\begin{document}
+
+The GRASP convention is that the fields and current carry time dependence $e^{\mathrm{j} \omega t}$; I'll use $e^{\ii \omega t}$ throughout.
+
+Power. Normalization to $4 \pi \unit{W}$.
+
+The simulations start with a single polarization of the circular waveguide $\text{TE}_{11}$ mode propagated out through a corrugated horn.
+
+There are two experimental configurations modeled by these simulations. One is a differencing configuration in which orthogonal polarizations of the $\text{TE}_{11}$ mode are coupled to a pair of detectors such as waveguide OMTs or antennas in the space opposite the sky side of the waveguide. The difference of these signals is a measurement of the Stokes parameter Q in the coordinate system defined by the orientation of the detectors. This differs from an exact measurement of Q on the sky due only to systematics introduced by the telescope optics.
+
+The other configuration involves a half-wave plate (HWP). In this configuration, the polarization is rotated by $90^{\circ}$ somewhere between the horn and the secondary mirror. \textbf{Check that this occurs in the horn farfield, if this matters. Also, check HWP rotation sign.}
+
+\section*{Brad's simulations.}
+
+\subsection*{Grid centers.}
+
+Brad's \texttt{make\_sky\_beam\_centers.pro} computes the plate scale $s = 1 / f_{\text{eff}}$, where $f_{\text{eff}}$ is the effective focal length of the instrument. For the low-frequency instrument at $97 \unit{GHz}$ the effective focal length is $2961.05 \unit{mm}$, and for the high-frequency instrument at $150 \unit{GHz}$ and $225 \unit{GHz}$ it is $2700 \unit{mm}$. \textbf{Figure out how to compute $f_{\text{eff}}$.} The plate scale has dimensions $\unit{radians} \unit{length}^{-1}$.
+
+For a feed centered at position $(x_{n}, y_{n})$, with $(0, 0)$ at the center of symmetry of the focal plane, the radial distance is $r_{n} = \sqrt{x_{n}^{2} + y_{n}^{2}}$. The zenith angle from boresight is $\theta_{n} = r_{n} * s$, and the azimuth angle relative to the $x$-coordinate is $\phi_{n} = \arctan(y_{n} / x_{n})$, wrapped to $[0, 2 \pi]$. Note that this is the correct angle for a right-handed coordinate system.
+
+The values saved in \texttt{sky\_beam\_centers.pro} are converted approximately to angles in degrees using
+\begin{equation*}
+x_{n} = \tfrac{180^{\circ}}{\pi} \theta_{n} \cos \phi_{n},
+\end{equation*}
+and
+\begin{equation*}
+y_{n} = \tfrac{180^{\circ}}{\pi} \theta_{n} \sin \phi_{n}.
+\end{equation*}
+These values are converted by \texttt{sky\_beam\_centers\_to\_dict.py} to dimensionless unit vector components $(u, v)$, where $u$ corresponds to the axis from which $\phi$ is measured in the right-handed direction.
+
+\subsection*{Plotting and orientation.}
+
+GRASP can report linear polarization according to the Ludwig-3 definition, which defines two unit vectors tangent to the sphere:
+\begin{align*}
+\hat{\vec{e}}_{\text{co}} &\equiv \hat{\vec{\theta}} \cos \phi - \hat{\vec{\phi}} \sin \phi \\
+\hat{\vec{e}}_{\text{cx}} & \equiv \hat{\vec{\theta}} \sin \phi + \hat{\vec{\phi}} \cos \phi.
+\end{align*}
+
+Near the $z$-axis, $\hat{\vec{e}}_{\text{co}} \approx \hat{\vec{x}}$ and $\hat{\vec{e}}_{\text{cx}} \approx \hat{\vec{y}}$. When plotting the electric fields in a grid, GRASP by default chooses right-handed axes labeled U and V, where in the grid coordinate system U corresponds to $x$ and V corresponds to $y$. This is equivalent to looking at the radiation pattern from the storage grid back toward the radiating feed. We want to plot in the opposite orientation, where we look from behind the feed at the beams on the sky.
+
+
+\end{document}
