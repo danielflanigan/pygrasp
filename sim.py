@@ -7,7 +7,7 @@ from pygrasp.jones import JonesMap
 
 # This is a library for dealing specifically with Brad's GRASP simulations.
 
-base = '/Users/daniel/Johnson-Miller Lab/optics'
+base = '/Users/daniel/Johnson-Miller Lab/GRASP'
 
 # 150 GHz.
 HF_150 = os.path.join(base, 'HF_focal_plane_150')
@@ -24,18 +24,13 @@ def make_grid(folder, feed, key):
     Return a Grid created from the simulation with key 1_A, 1_B, 2_A,
     or 2_B, corresponding to the given feed number in the given folder.
     """
-    filename = glob(os.path.join(folder, 'beam_map_*F%s_pol%s.grd' %(feed, key)))
+    filename = glob(os.path.join(folder, 'beam_map_*F{}_pol{}.grd'.format(feed, key)))
     return Grid(filename[0])
 
-def make_diff_jones_map(folder, feed):
-    co = make_grid(folder, feed, '1_A')
-    cx = make_grid(folder, feed, '2_A')
-    return JonesMap((co, cx))
-
-def make_hwp_jones_map(folder, feed):
-    co = make_grid(folder, feed, '1_A')
-    cx = make_grid(folder, feed, '1_B')
-    return JonesMap((co, cx))
+def make_jones_map(folder, feed, co, cx):
+    g_co = make_grid(folder, feed, co)
+    g_cx = make_grid(folder, feed, cx)
+    return JonesMap((g_co, g_cx))
 
 def theta_phi_to_Brad_angles(theta, phi):
     """

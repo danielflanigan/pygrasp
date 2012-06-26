@@ -1,5 +1,6 @@
 from __future__ import division
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -9,9 +10,12 @@ This is an abstract class that contains methods useful for maps.
 
 class Map(object):
 
-    def __init__(self):
+    # Figure out if it's possible to get subclasses to read
+    # their own shape and data_type class variables.
+    def __init__(self, shape, data_type):
         self.X = np.array([0.])
         self.Y = np.array([0.])
+        self.map = np.zeros((shape[0], shape[1], 1, 1), dtype=data_type)
 
     def dx(self):
         """
@@ -34,6 +38,14 @@ class Map(object):
         y0 = (self.Y[-1] + self.Y[0]) / 2
         self.X += x - x0
         self.Y += y - y0
+
+    def swap(self):
+        """
+        Return a view of self.map with shape
+        (X.size, Y.size, cls.shape[0], cls.shape[1]).
+        Use this for broadcasting into multiple map points.
+        """
+        return self.map.swapaxes(0, 2).swapaxes(1, 3)
 
     def indices(self, x, y, clip=False):
         """
@@ -73,6 +85,20 @@ class Map(object):
         i_x, i_y, within = self.indices(x, y, clip=False)
         return self.X[i_x], self.Y[i_y]
 
+    def save_npy(self, folder):
+        os.mkdir(folder)
+        np.save(os.path.join(folder, 'X.npy'), self.X)
+        np.save(os.path.join(folder, 'Y.npy'), self.Y)
+        np.save(os.path.join(folder, 'map.npy'), self.map)
+
+    def load_npy(self, folder):
+        self.X = np.load(os.path.join(folder, 'X.npy'))
+        self.Y = np.load(os.path.join(folder, 'Y.npy'))
+        self.map = np.load(os.path.join(folder, 'map.npy'))
+        #assert all(map.shape[:2] == self.shape)
+
+    # Switch the plotting methods to return the figure.
+    
     # Work out transposition and extents.
     def make_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.jet):
         plt.ioff()
@@ -118,7 +144,8 @@ class Map(object):
                     contours,
                     cmap=color,
                     extent=(self.X[0], self.X[-1], self.Y[0], self.Y[-1]))
-        plt.colorbar(shrink=0.8, aspect=20*0.8, format='%.3f')
+        #plt.colorbar(shrink=0.8, aspect=20*0.8, format='%.3f')
+        plt.colorbar(shrink=0.8, aspect=20*0.8, format='%3.3g')
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
@@ -136,22 +163,3 @@ class Map(object):
             plt.ion()
         else:
             plt.close()
-
-    def show_tile(self):
-        plt.ioff()
-        fig = plt.figure()
-        names = {0: 'T', 1: 'Q', 2: 'U', 3: 'V'}
-        for i in range(4):
-            for j in range(4):
-                name = '%s%s' %(names[j], names[i])
-                sub = plt.subplot(4, 4, 4 * i + j + 1)
-                sub.axes.get_xaxis().set_visible(False)
-                sub.axes.get_yaxis().set_visible(False)
-                a = self.M[i, j]
-                plt.contour(a.T,
-                            contours=np.linspace(np.min(a.flatten()), np.max(a.flatten()), 10))
-                sub.title.set_text(name)
-        plt.ion()
-        plt.show()
-        return fig
-    

@@ -8,35 +8,47 @@
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0.5\baselineskip}
 
-% General math
-\newcommand{\ii}{\mathrm{i}}
-\newcommand{\dif}{\mathrm{d}}
-\newcommand{\diff}[ 2 ]{\mathrm{d}^{#1} #2 \,}
-\newcommand{\dd}[ 2 ]{\frac{\dif #1}{\dif #2}}
-\newcommand{\unit}[ 1 ]{\, \textrm{#1}}
-\newcommand{\pp}[ 2 ]{\frac{\partial #1}{\partial #2}}
-\renewcommand{\vec}[ 1 ]{\boldsymbol{\mathrm{#1}}}
-
-% Quantum mechanics
-\newcommand{\bra} [ 2 ] [ ] {\mathinner{\langle #2 |}_{#1}}
-\newcommand{\ket} [ 2 ] [ ] {\mathinner{| #2 \rangle}_{#1}}
-\newcommand{\braket} [ 3 ] [ ] {\mathinner{\langle #2 | #3 \rangle}_{#1}}
-\newcommand{\Bra} [ 2 ] [ ] {\mathinner{\left< #2 \right|}_{#1}}
-\newcommand{\Ket} [ 2 ] [ ] {\mathinner{\left| #2 \right>}_{#1}}
-\newcommand{\Braket} [ 3 ] [ ] {\mathinner{\left< #2 \mid #3 \right>}_{#1}}
+\input{/Users/daniel/Documents/Physics/physics.tex}
 
 \begin{document}
 
-The GRASP convention is that the fields and current carry time dependence $e^{\mathrm{j} \omega t}$; I'll use $e^{\ii \omega t}$ throughout.
-
-Power. Normalization to $4 \pi \unit{W}$.
+\section*{Overview.}
 
 The simulations start with a single polarization of the circular waveguide $\text{TE}_{11}$ mode propagated out through a corrugated horn.
 
-There are two experimental configurations modeled by these simulations. One is a differencing configuration in which orthogonal polarizations of the $\text{TE}_{11}$ mode are coupled to a pair of detectors such as waveguide OMTs or antennas in the space opposite the sky side of the waveguide. The difference of these signals is a measurement of the Stokes parameter Q in the coordinate system defined by the orientation of the detectors. This differs from an exact measurement of Q on the sky due only to systematics introduced by the telescope optics.
+There are two experimental configurations modeled by these simulations. One is a differencing configuration in which orthogonal polarizations of the $\text{TE}_{11}$ mode are coupled to a pair of detectors such as waveguide OMTs or antennas in the space opposite the sky side of the waveguide. The difference of these signals is a measurement of the Stokes parameter Q in the coordinate system defined by the orientation of the detectors. This differs from an exact measurement of Q on the sky due only to systematic errors introduced by the telescope optics.
 
 The other configuration involves a half-wave plate (HWP). In this configuration, the polarization is rotated by $90^{\circ}$ somewhere between the horn and the secondary mirror. \textbf{Check that this occurs in the horn farfield, if this matters. Also, check HWP rotation sign.}
 
+\section*{Conventions.}
+
+The GRASP convention is that the fields and currents carry time dependence $\me^{\mathrm{j} \omega t}$. I'll use $\me^{\mi \omega t}$ throughout. This is the opposite of the most common convention in physics texts, where the phase of a plane wave is usually given by $\mi (\vec{k} \cdot \vec{r} - \omega t)$. This is most important for understanding the directions of circular polarization.
+
+Both modern physics and engineering use the same convention for circular polarization, which is the opposite of the optics convention. 
+
+The modern physics convention matches the definition of spin for other particles: positive helicity (right circular polarized) light carries angular momentum with a positive projection along the positive axis of propagation, and for negative helicity (left circular polarized) light the projection of angular momentum is opposite the direction of propagation. This is clearly superior to the optics convention, which switches left and right. Fortunately, GRASP uses the modern physics convention, as I will here. To minimize confusion I'll use only the terms positive and negative helicity.
+
+At a fixed point in space, the electric and magnetic fields of positive helicity light rotate in the right-handed sense with respect to the direction of propagation.
+
+\subsection*{Plotting and orientation.}
+
+GRASP can report linear polarization according to the Ludwig-3 definition, which defines two unit vectors tangent to the sphere:
+\begin{align*}
+\hat{\vec{e}}_{\text{co}} &\equiv \hat{\vec{\theta}} \cos \phi - \hat{\vec{\phi}} \sin \phi \\
+\hat{\vec{e}}_{\text{cx}} & \equiv \hat{\vec{\theta}} \sin \phi + \hat{\vec{\phi}} \cos \phi.
+\end{align*}
+
+GRASP also refers to $\hat{\vec{e}}_{co}$ as $\vec{u}$ and to $\hat{\vec{e}}_{cx}$ as $\vec{v}$. Near the positive $z$-axis, with $\theta \approx 0$, $\hat{\vec{e}}_{\text{co}} \approx \hat{\vec{x}}$ and $\hat{\vec{e}}_{\text{cx}} \approx \hat{\vec{y}}$. When plotting the electric fields in a grid, GRASP by default chooses right-handed axes labeled U and V, where in the grid coordinate system U corresponds to $x$ and V corresponds to $y$. This is equivalent to looking at the radiation pattern from the storage grid back toward the radiating feed. We want to plot in the opposite orientation, where we look from behind the feed at the beam on the sky.
+
+\begin{align*}
+\uvec{e}_{+} = \uvec{e}_{rhc} &= 2^{-1/2} (\uvec{e}_{co} - \mi \uvec{e}_{cx}) \\
+\uvec{e}_{-} = \uvec{e}_{lhc} &= 2^{-1/2} (\uvec{e}_{co} + \mi \uvec{e}_{cx}).
+\end{align*}
+Because the GRASP time dependence is $\me^{\mi \omega t}$, the positive and negative helicity unit vectors are exchanged from those in Jackson, which uses $\me^{- \mi \omega t}$.
+
+\subsection*{Power.}
+
+Figure out normalization to $4 \pi \unit{W}$.
 \section*{Brad's simulations.}
 
 \subsection*{Grid centers.}
@@ -55,15 +67,8 @@ y_{n} = \tfrac{180^{\circ}}{\pi} \theta_{n} \sin \phi_{n}.
 \end{equation*}
 These values are converted by \texttt{sky\_beam\_centers\_to\_dict.py} to dimensionless unit vector components $(u, v)$, where $u$ corresponds to the axis from which $\phi$ is measured in the right-handed direction.
 
-\subsection*{Plotting and orientation.}
+\section*{Time reversal and orientation.}
 
-GRASP can report linear polarization according to the Ludwig-3 definition, which defines two unit vectors tangent to the sphere:
-\begin{align*}
-\hat{\vec{e}}_{\text{co}} &\equiv \hat{\vec{\theta}} \cos \phi - \hat{\vec{\phi}} \sin \phi \\
-\hat{\vec{e}}_{\text{cx}} & \equiv \hat{\vec{\theta}} \sin \phi + \hat{\vec{\phi}} \cos \phi.
-\end{align*}
-
-Near the $z$-axis, $\hat{\vec{e}}_{\text{co}} \approx \hat{\vec{x}}$ and $\hat{\vec{e}}_{\text{cx}} \approx \hat{\vec{y}}$. When plotting the electric fields in a grid, GRASP by default chooses right-handed axes labeled U and V, where in the grid coordinate system U corresponds to $x$ and V corresponds to $y$. This is equivalent to looking at the radiation pattern from the storage grid back toward the radiating feed. We want to plot in the opposite orientation, where we look from behind the feed at the beams on the sky.
-
+A simulation shows the antenna pattern of a detector as it radiates while an actual instrument absorbs radiation from the sky, so the true detector beam is the time-reversed version of the antenna pattern. 
 
 \end{document}

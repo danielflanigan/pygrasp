@@ -7,35 +7,34 @@ from pygrasp.grid import Grid
 
 class JonesMap(Map):
 
-    def __init__(self, co_and_cx=None):
+    # This is the shape of the matrix at each pixel.
+    shape = (2, 2)
+    # This is the map data type.
+    data_type = np.complex
+
+    # This is the mapping between array indices and Jones vector components.
+    jones = {0: 'co', 'co': 0,
+             1: 'cx', 'cx': 1}
+
+    def __init__(self, co=None, cx=None):
         """
         Create a new empty JonesMap or create one from two Grid instances.
         """
-        if co_and_cx is None:
-            super(JonesMap, self).__init__()
-            self.J = np.array([0])
+        if co is None and cx is None:
+            super(JonesMap, self).__init__(self.shape, self.data_type)
         else:
-            co = co_and_cx[0]
-            cx = co_and_cx[1]
             assert(isinstance(co, Grid) and isinstance(cx, Grid))            
             assert(all(co.X == cx.X))
             self.X = co.X
             assert(all(co.Y == cx.Y))
             self.Y = co.Y
-
             # Create a Jones matrix map with
-            # J.shape = (2, 2, X.size, Y.size)
-            self.J = np.array([[co.E_co, cx.E_co],
-                               [co.E_cx, cx.E_cx]])
-
-    def invert(self):
-        J = np.empty((self.J.shape))
-        for x in range(self.X.size):
-            for y in range(self.Y.size):
-                J[:, :, x, y] = np.mat(self.J[:, :, x, y]).getI()
-        self.J = J
+            # map.shape = (2, 2, X.size, Y.size)
+            self.map = np.array([[co.map[0, 0], cx.map[0, 0]],
+                                 [co.map[1, 0], cx.map[1, 0]]])
 
     # Not yet tested.
+    # Move to Map?
     @classmethod
     def coadd(cls, jones_maps):
         assert all([isinstance(j, JonesMap) for j in jones_maps])
@@ -55,19 +54,20 @@ class JonesMap(Map):
         coadded = JonesMap()
         coadded.X = np.linspace(x_min, x_max, nx)
         coadded.Y = np.linspace(y_min, y_max, ny)
-        coadded.J = np.zeros((2, 2, coadded.X.size, coadded.Y.size))
+        coadded.map = np.zeros((JonesMap.shape[0],
+                                JonesMap.shape[1],
+                                coadded.X.size,
+                                coadded.Y.size),
+                               dtype=np.complex)
         for j in jones_maps:
             i_x, i_y, within = coadded.indices(j.X, j.Y)
-            coadded.J[:, :, i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += j.J
+            coadded.map[:, :, i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += j.map
         return coadded
 
-    # Move these methods to Map.
-    def save(self, folder, name):
-        np.save(os.path.join(folder, '%s.X.npy' %(name)), self.X)
-        np.save(os.path.join(folder, '%s.Y.npy' %(name)), self.Y)
-        np.save(os.path.join(folder, '%s.J.npy' %(name)), self.J)
-
-    def load(self, folder, name):
-        self.X = np.load(os.path.join(folder, '%s.X.npy' %(name)))
-        self.Y = np.load(os.path.join(folder, '%s.Y.npy' %(name)))
-        self.M = np.load(os.path.join(folder, '%s.J.npy' %(name)))
+    # It's not clear what this means.
+    def invert(self):
+        map = np.empty((self.map.shape))
+        for x in range(self.X.size):
+            for y in range(self.Y.size):
+                map[:, :, x, y] = np.mat(self.map[:, :, x, y]).getI()
+        self.map = map

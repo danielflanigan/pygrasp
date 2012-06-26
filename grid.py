@@ -1,12 +1,32 @@
 from __future__ import division
 
+import os
 import numpy as np
 
 from pygrasp.map import Map
 
 class Grid(Map):
 
-    def __init__(self, filename):
+    # This is the shape of the matrix at each pixel.
+    shape = (2, 1)
+    # This is the map data type.
+    data_type = np.complex
+
+    # This is the mapping between array indices and Jones vector components.
+    jones = {0: 'co', 'co': 0,
+             1: 'cx', 'cx': 1}
+
+    def __init__(self, filename=None):
+        """
+        Create a new grid file. If a filename is supplied, load the
+        data from that file, otherwise create a blank grid.
+        """
+        if filename is None:
+            super(Grid, self).__init__(self.shape, self.data_type)
+        else:
+            self.load_grd(filename)
+
+    def load_grd(self, filename):
         """
         Read and parse data from the GRASP .grd file. The variables in
         capital letters match those in the GRASP-10 manual.
@@ -50,5 +70,26 @@ class Grid(Map):
         # Organize the data. The manual says that the file is
         # organized so that X varies faster than Y, which corresponds
         # to column-major (Fortran) ordering in the reshape.
-        self.E_co = (data[:, 0] + 1j * data[:, 1]).reshape(self.NX, self.NY, order='F')
-        self.E_cx = (data[:, 2] + 1j * data[:, 3]).reshape(self.NX, self.NY, order='F')
+        E_co = (data[:, 0] + 1j * data[:, 1]).reshape(self.NX, self.NY, order='F')
+        E_cx = (data[:, 2] + 1j * data[:, 3]).reshape(self.NX, self.NY, order='F')
+        self.map = np.array([[E_co], [E_cx]])
+
+    def save_grd(self, filename):
+        """
+        Write the data in this Grid to a new .grd file. Will not overwrite.
+        """
+        if os.path.exists(filename):
+            raise ValueError("File already exists: {}".format(filename))
+        with open(filename, 'w') as f:
+            for line in self.header:
+                f.write('{}\n'.format(line))
+            f.write('{:2d}\n'.format(self.KTYPE))
+            f.write('{:12d}{:12d}{:12d}{:12d}\n'.format(self.NSET, self.ICOMP, self.NCOMP, self.IGRID))
+            f.write('{:12d}{:12d}\n'.format(self.IX, self.IY))
+            f.write(' {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E}\n'.format(self.XS, self.YS, self.XE, self.YE))
+            f.write('{:12d}{:12d}{:12d}\n'.format(self.NX, self.NY, self.KLIMIT))
+            # This creates new views into the arrays, not copies.
+            E_co = self.map[0, 0].reshape(self.NX * self.NY, order='F')
+            E_cx = self.map[1, 0].reshape(self.NX * self.NY, order='F')
+            for i in range(self.NX * self.NY):
+                f.write(' {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E}\n'.format(E_co[i].real, E_co[i].imag, E_cx[i].real, E_cx[i].imag))

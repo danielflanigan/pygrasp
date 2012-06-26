@@ -1,6 +1,5 @@
 from __future__ import division
 
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -9,11 +8,10 @@ from pygrasp.jones import JonesMap
 
 class MuellerMap(Map):
 
-    A = np.mat(np.array([[1,   0,   0,   1],
-                         [1,   0,   0,  -1],
-                         [0,   1,   1,   0],
-                         [0,  1j, -1j,   0]]))
-    AI = A.getI()
+    # This is the shape of the matrix at each pixel.
+    shape = (4, 4)
+    # This is the map data type.
+    data_type = np.float
 
     # This is the mapping between array indices and Stokes parameters.
     stokes = {0: 'T', 'T': 0,
@@ -21,39 +19,51 @@ class MuellerMap(Map):
               2: 'U', 'U': 2,
               3: 'V', 'V': 3}
 
+    A = np.mat(np.array([[1,   0,   0,   1],
+                         [1,   0,   0,  -1],
+                         [0,   1,   1,   0],
+                         [0,  1j, -1j,   0]]))
+    AI = A.getI()
+
     def __init__(self, jones_map=None):
         """
         Create a new empty MuellerMap or create one from a JonesMap instance.
         """
         if jones_map is None:
-            super(MuellerMap, self).__init__()
-            self.M = np.array([0])
+            super(MuellerMap, self).__init__(self.shape, self.data_type)
         else:
             assert isinstance(jones_map, JonesMap)
             self.X = jones_map.X
             self.Y = jones_map.Y
-            J = jones_map.J
-            self.M = np.empty((4, 4, self.X.size, self.Y.size), dtype='float')
+            J = jones_map.map
+            self.map = np.empty((self.shape[0],
+                                 self.shape[1],
+                                 self.X.size,
+                                 self.Y.size),
+                                dtype='float')
             for x in range(self.X.size):
                 for y in range(self.Y.size):
-                    Jxy = np.mat(J[:, :, x, y])
-                    Mxy = self.A * np.kron(Jxy, Jxy.conj()) * self.AI
-                    assert np.all(Mxy.imag == 0), "Nonzero complex value in M."
-                    self.M[:, :, x, y] = Mxy.real
+                    J_xy = np.mat(J[:, :, x, y])
+                    # The matrix cast is redundant since numpy takes *
+                    # to mean matrix multiplication when either element
+                    # is a matrix.
+                    M_xy = self.A * np.mat(np.kron(J_xy, J_xy.conj())) * self.AI
+                    assert np.all(M_xy.imag == 0), "Nonzero complex value in M."
+                    self.map[:, :, x, y] = M_xy.real
 
-    # This isn't what we want.
+    # Figure out what this means.
     def inverse_from_jones(self, jones_map):
         assert isinstance(jones_map, JonesMap)
         self.X = jones_map.X
         self.Y = jones_map.Y
-        J = jones_map.J
-        self.M = np.empty((4, 4, self.X.size, self.Y.size), dtype='float')
+        J = jones_map.map
+        self.map = np.empty((4, 4, self.X.size, self.Y.size), dtype='float')
         for x in range(self.X.size):
             for y in range(self.Y.size):
-                Jxy = np.mat(J[:, :, x, y])
-                Mxy = np.mat(self.A * np.kron(Jxy, Jxy.conj()) * self.AI).getI()
-                assert np.all(Mxy.imag == 0), "Nonzero complex value in M."
-                self.M[:, :, x, y] = Mxy.real
+                J_xy = np.mat(J[:, :, x, y])
+                M_xy = np.mat(self.A * np.kron(J_xy, J_xy.conj()) * self.AI).getI()
+                assert np.all(M_xy.imag == 0), "Nonzero complex value in map."
+                self.map[:, :, x, y] = M_xy.real
         
     @classmethod
     def coadd(cls, mueller_maps):
@@ -80,27 +90,18 @@ class MuellerMap(Map):
             coadded.M[:, :, i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += m.M
         return coadded
 
-    # Move these methods to Map.
-    def save(self, folder, name):
-        np.save(os.path.join(folder, '%s.X.npy' %(name)), self.X)
-        np.save(os.path.join(folder, '%s.Y.npy' %(name)), self.Y)
-        np.save(os.path.join(folder, '%s.M.npy' %(name)), self.M)
-
-    def load(self, folder, name):
-        self.X = np.load(os.path.join(folder, '%s.X.npy' %(name)))
-        self.Y = np.load(os.path.join(folder, '%s.Y.npy' %(name)))
-        self.M = np.load(os.path.join(folder, '%s.M.npy' %(name)))
-
-    def show_tile(self, color=None):
+    # Figure out how to create a title and axes labels.
+    def contour_tile(self, color=None):
         plt.ioff()
-        fig = plt.figure()
+        fig = plt.figure(figsize=(8, 8))
         for i in range(4):
             for j in range(4):
-                name = '%s%s' %(self.stokes[j], self.stokes[i])
+                # Verify.
+                name = '{}{}'.format(self.stokes[i], self.stokes[j])
                 sub = plt.subplot(4, 4, 4 * i + j + 1)
                 sub.axes.get_xaxis().set_visible(False)
                 sub.axes.get_yaxis().set_visible(False)
-                a = self.M[i, j]
+                a = self.map[i, j]
                 c=np.linspace(np.min(a.flatten()),
                               np.max(a.flatten()),
                               8)
@@ -110,6 +111,26 @@ class MuellerMap(Map):
                     plt.contour(a.T,
                                 contours=c,
                                 cmap=color)
+                sub.title.set_text(name)
+        plt.ion()
+        plt.show()
+        return fig
+
+    def plot_tile(self, color=None):
+        plt.ioff()
+        fig = plt.figure(figsize=(8, 8))
+        for i in range(4):
+            for j in range(4):
+                name = '{}{}'.format(self.stokes[j], self.stokes[i])
+                sub = plt.subplot(4, 4, 4 * i + j + 1)
+                sub.axes.get_xaxis().set_visible(False)
+                sub.axes.get_yaxis().set_visible(False)
+                a = self.map[i, j]
+                plt.imshow(a.T,
+                           cmap=color,
+                           aspect='equal',			 
+                           interpolation='nearest',
+                           origin='lower')
                 sub.title.set_text(name)
         plt.ion()
         plt.show()
