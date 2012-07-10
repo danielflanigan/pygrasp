@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from collections import OrderedDict
 import pyparsing as p
 
@@ -75,7 +76,9 @@ class Grammar(object):
                                   p.Word(p.nums + '+-', p.nums)))
     quantity = number + p.Optional(p.Word(p.alphas, p.alphanums + '-^/' + ' '), default=None)
     quantity.setParseAction(lambda tokens: Quantity(tokens[0], tokens[1]))
-    identifier = p.Word(p.alphas + '_', p.alphanums + '_')
+    #identifier = p.Word(p.alphas + '_', p.alphanums + '_')
+    # Added '.' to handle Brad's EBEX sims. See if this breaks anything.
+    identifier = p.Word(p.alphas + '_', p.alphanums + '_.')
     value = p.Forward()
     elements = p.delimitedList(value)
     member = p.Group(identifier + p.Suppress(':') + value)
@@ -93,8 +96,9 @@ class Grammar(object):
              p.Suppress(')')
     struct.setParseAction(lambda tokens: [Struct(list(tokens.get('members', [])))])
     comment = p.QuotedString('"', unquoteResults=False)
-    # This could be a filename or just a string.
-    other = p.Word(p.alphanums + '/._-')
+    # This could be a filename or just a string. Added '\' to handle EBEX sim.
+    # Should convert to unix filename.
+    other = p.Word(p.alphanums + '\/._-')
     value << (quantity | ref | sequence | struct | comment | other)
 
 
@@ -139,7 +143,7 @@ class CommandInterface(OrderedDict, Grammar):
         return '\n\n'.join(['{} cmd_{}'.format(command, index) for index, command in self.iteritems()] + ['QUIT'])
 
     # This method is identical between CommandInterface and ObjectRepository.
-    # This could be a class method or a superclass method.
+    # This could be a superclass method.
     def traverse(self, name, thing, action, filter):
         if filter(name, thing):
             action(name, thing)
@@ -150,25 +154,21 @@ class CommandInterface(OrderedDict, Grammar):
             for key, value in thing.iteritems():
                 self.traverse(key, value, action, filter)
 
-    def reference(self, repository, names_and_things=None):
+    def reference(self, repository):
         """
         Update references to classes by replacing object names with
         the actual objects from ObjectRepository repository.
         """
-        if names_and_things is None:
-            names_and_things = self.iteritems()
         for name, thing in names_and_things:
             self.traverse(name,
                           thing,
                           lambda name, thing: thing.set(repository[thing.name]),
                           lambda name, thing: isinstance(thing, Ref))
                 
-    def dereference(self, names_and_things=None):
+    def dereference(self):
         """
         Update references to classes by replacing objects with their names.
         """
-        if names_and_things is None:
-            names_and_things = self.iteritems()
         for name, thing in names_and_things:
             self.traverse(name,
                           thing,
@@ -212,6 +212,56 @@ class ObjectRepository(OrderedDict, Grammar):
         elif isinstance(thing, OrderedDict):
             for key, value in thing.iteritems():
                 self.traverse(key, value, action, filter)
+
+    def extract(self, name, source, careful=False, copy=True):
+        """
+        Add to this instance the named object from the given source
+        and all references on which it depends, all the way up the
+        tree, overwriting previous objects.
+
+        If careful is False, the traversal will follow all references
+        and add the objects to this instance until it encounters only
+        objects that have no dependencies, replacing objects that have
+        the same name as objects already in this instance. If an
+        object dependency is cyclic, the traversal will lead to an
+        infinite loop. This should never happen, and it's not clear
+        whether GRASP even allows this. (This could happen most easily
+        with coordinate systems.)
+
+        If careful is True, the traversal will stop when it encounters
+        an object whose name is already a key in this instance, and it
+        will not overwrite this object. Using this option with a name
+        already in the dictionary has no effect. This avoids an
+        infinite loop in the case of a cyclic reference. It is also
+        more efficient, since it avoids repeatedly traversing the
+        tree. If there are objects in the tree whose references have
+        not been imported, a careful traversal will not import these
+        references unless other imported objects reference them.
+
+        A repository populated only by calls to this method with
+        careful=True should contain all necessary references.
+
+        If copy is False then the objects referenced in this
+        Repository with be the same as those in the source. Active
+        references to other objects will be as expected as long as all
+        objects come from the same source.
+
+        If copy is True this instance will contain copies made using
+        copy.deepcopy(). New Refs created in this way always contain
+        strings and not actual objects, regardeless of the format in
+        the source Repository, because the deepcopy operation would
+        otherwise create objects that are identical to but not the
+        same as those in the new repository.
+        """
+        obj = source[name]
+        if name in self and careful:
+            pass
+        else:
+            self[obj.display_name] = {True: deepcopy(obj), False: obj}[copy]
+            self.traverse(obj.display_name,
+                          obj,
+                          lambda name, thing: self.extract(thing.name, source, careful, copy),
+                          lambda name, thing: isinstance(thing, Ref))
 
     def reference(self, names_and_things=None):
         """
@@ -330,12 +380,20 @@ class Ref(object):
         else:
             raise ValueError("Invalid Ref: {!r}".format(ref))
         self.ref = ref
+
+    def __deepcopy__(self, memo):
+        """
+        This method prevents the creation of referenced objects that
+        are identical copies of those at the top level of the
+        Repository.
+        """
+        return Ref(self.name)
         
     def __str__(self):
         return 'ref({})'.format(self.name)
 
     def __repr__(self):
-        return self.__str__()
+        return '{}({}: {})'.format(self.__class__.__name__, self.ref.__class__.__name__, self.name)
 
 
 class Struct(OrderedDict):
