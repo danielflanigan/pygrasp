@@ -102,14 +102,17 @@ class Grammar(object):
     value << (quantity | ref | sequence | struct | comment | other)
 
 
-class CommandInterface(OrderedDict, Grammar):
+# Change this class to inherit from list. This will allow for easy insertion of commands.
+class CommandInterface(list, Grammar):
+#class CommandInterface(OrderedDict, Grammar):
     """
     This class represents a TICRA Command Interface (.tci) file.
     """
 
     # Add logic for reading and writing batch commands.
 
-    def __init__(self, other={}):
+    def __init__(self, other=[]):
+    #def __init__(self, other={}):
         super(CommandInterface, self).__init__(other)
         self.files_read_all = []
     
@@ -125,7 +128,8 @@ class CommandInterface(OrderedDict, Grammar):
 
     def load(self, filename):
         with open(filename, 'r') as f:
-            self.update([(number+1, command) for number, command in enumerate(self.parse(f.read()))])
+            self.extend(self.parse(f.read()))
+            #self.update([(number+1, command) for number, command in enumerate(self.parse(f.read()))])
 
     def save(self, filename, batch_mode=False):
         """
@@ -140,10 +144,12 @@ class CommandInterface(OrderedDict, Grammar):
             f.write(string)
 
     def __str__(self):
-        return '\n\n'.join(['{} cmd_{}'.format(command, index) for index, command in self.iteritems()] + ['QUIT'])
+        #return '\n\n'.join(['{} cmd_{}'.format(command, index) for index, command in self.iteritems()] + ['QUIT'])
+        return '\n\n'.join(['{} cmd_{}'.format(command, index + 1) for index, command in enumerate(self)] + ['QUIT'])
 
     # This method is identical between CommandInterface and ObjectRepository.
     # This could be a superclass method.
+    # Fix me for list.
     def traverse(self, name, thing, action, filter):
         if filter(name, thing):
             action(name, thing)
@@ -159,7 +165,7 @@ class CommandInterface(OrderedDict, Grammar):
         Update references to classes by replacing object names with
         the actual objects from ObjectRepository repository.
         """
-        for name, thing in names_and_things:
+        for name, thing in enumerate(self):
             self.traverse(name,
                           thing,
                           lambda name, thing: thing.set(repository[thing.name]),
@@ -169,7 +175,7 @@ class CommandInterface(OrderedDict, Grammar):
         """
         Update references to classes by replacing objects with their names.
         """
-        for name, thing in names_and_things:
+        for name, thing in enumerate(self):
             self.traverse(name,
                           thing,
                           lambda name, thing: thing.set(thing.name),
@@ -248,7 +254,7 @@ class ObjectRepository(OrderedDict, Grammar):
 
         If copy is True this instance will contain copies made using
         copy.deepcopy(). New Refs created in this way always contain
-        strings and not actual objects, regardeless of the format in
+        strings and not actual objects, regardless of the format in
         the source Repository, because the deepcopy operation would
         otherwise create objects that are identical to but not the
         same as those in the new repository.
@@ -263,25 +269,21 @@ class ObjectRepository(OrderedDict, Grammar):
                           lambda name, thing: self.extract(thing.name, source, careful, copy),
                           lambda name, thing: isinstance(thing, Ref))
 
-    def reference(self, names_and_things=None):
+    def reference(self):
         """
         Update references to classes by replacing object names with the actual objects.
         """
-        if names_and_things is None:
-            names_and_things = self.iteritems()
-        for name, thing in names_and_things:
+        for name, thing in self.iteritems():
             self.traverse(name,
                           thing,
                           lambda name, thing: thing.set(self[thing.name]),
                           lambda name, thing: isinstance(thing, Ref))
                 
-    def dereference(self, names_and_things=None):
+    def dereference(self):
         """
         Update references to classes by replacing objects with their names.
         """
-        if names_and_things is None:
-            names_and_things = self.iteritems()
-        for name, thing in names_and_things:
+        for name, thing in self.iteritems():
             self.traverse(name,
                           thing,
                           lambda name, thing: thing.set(thing.name),
