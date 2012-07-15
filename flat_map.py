@@ -294,7 +294,7 @@ class NearFieldGrid(FlatMap):
         else:
             self.load_grd(filename)
 
-    def load_grd(self, filename, near_field=False):
+    def load_grd(self, filename):
         """
         Read and parse data from the GRASP .grd file. The variables in
         capital letters match those in the GRASP-10 manual.
