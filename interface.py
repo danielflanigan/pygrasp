@@ -39,7 +39,6 @@ class Project(object):
         tci_file = os.path.join(working, '{}.tci'.format(self.name))
         with open(tci_file, 'w') as f:
             f.write(str(self.tci))
-
     
     def __str__(self):
         lines = ['[Comment]',
@@ -64,10 +63,12 @@ class Project(object):
 
 class Grammar(object):
     """
-    This class contains the basic grammar for the TICRA
-    .tor and .tci file formats.
+    This class contains the pyparsing grammar for the TICRA .tor and
+    .tci file formats.
     """
 
+    # It might be cleaner to have the grammar for each class in the
+    # class itself, but this causes scope problems.
     plus_or_minus = p.Literal('+') ^ p.Literal('-')
     number = p.Combine(p.Optional(plus_or_minus) +
                        p.Word(p.nums) +
@@ -76,8 +77,8 @@ class Grammar(object):
                                   p.Word(p.nums + '+-', p.nums)))
     quantity = number + p.Optional(p.Word(p.alphas, p.alphanums + '-^/' + ' '), default=None)
     quantity.setParseAction(lambda tokens: Quantity(tokens[0], tokens[1]))
-    #identifier = p.Word(p.alphas + '_', p.alphanums + '_')
     # Added '.' to handle Brad's EBEX sims. See if this breaks anything.
+    # An identifier is no longer a valid Python variable.
     identifier = p.Word(p.alphas + '_', p.alphanums + '_.')
     value = p.Forward()
     elements = p.delimitedList(value)
@@ -101,102 +102,95 @@ class Grammar(object):
     other = p.Word(p.alphanums + '\/._-')
     value << (quantity | ref | sequence | struct | comment | other)
 
+    physical = (identifier('display_name') +
+                identifier('class_name') +
+                p.Suppress('(') +
+                p.Optional(members)('members') +
+                p.Suppress(')'))
+    physical.ignore(p.cppStyleComment) # '// comment'
+    physical.ignore(p.pythonStyleComment) # '# comment'
+    physical.setParseAction(lambda tokens: [Physical(tokens['display_name'],
+                                                     tokens['class_name'],
+                                                     list(tokens.get('members', [])))])
 
-# Change this class to inherit from list. This will allow for easy insertion of commands.
-class CommandInterface(list, Grammar):
-#class CommandInterface(OrderedDict, Grammar):
+    object_repository = p.ZeroOrMore(physical) + p.StringEnd()
+    object_repository.ignore(p.cppStyleComment)
+    object_repository.ignore(p.pythonStyleComment)
+
+    command = (p.Suppress('COMMAND') +
+               p.Suppress('OBJECT') +
+               identifier('target_name') +
+               identifier('command_name') +
+               p.Suppress('(') +
+               p.Optional(members)('members') +
+               p.Suppress(')') +
+               p.CaselessLiteral('cmd_').suppress() +
+               p.Word(p.nums)('number'))
+    command.ignore(p.cppStyleComment) # '// comment'
+    command.ignore(p.pythonStyleComment) # '# comment'
+    command.ignore(p.Literal('&'))
+    command.setParseAction(lambda tokens: [Command(tokens['target_name'],
+                                                   tokens['command_name'],
+                                                   list(tokens.get('members', [])))])
+
+    # Add support for other batch commands.
+    batch_command = p.CaselessLiteral('FILES READ ALL') + other + p.LineEnd().suppress()
+    batch_command.setParseAction(lambda tokens: [BatchCommand(tokens)])
+    quit_command = p.CaselessLiteral('QUIT')
+
+    # Add support for multiple QUIT statements.
+    command_interface = (p.ZeroOrMore(batch_command)('batch_commands') +
+                         p.ZeroOrMore(command)('commands') +
+                         quit_command +
+                         p.StringEnd())
+    command_interface.ignore(p.cppStyleComment)
+    command_interface.ignore(p.pythonStyleComment)
+
+
+class CommandInterface(list):
     """
     This class represents a TICRA Command Interface (.tci) file.
     """
 
-    # Add logic for reading and writing batch commands.
-
     def __init__(self, other=[]):
-    #def __init__(self, other={}):
         super(CommandInterface, self).__init__(other)
-        self.files_read_all = []
+        self.batch_commands = []    
     
-    def parse(self, string):
-        # Improve this if possible.
-        files_read_all = p.Suppress('files read all ') + p.restOfLine
-        files_read_all.setParseAction(lambda tokens: self.files_read_all.append(tokens.pop()))
-        format = p.ZeroOrMore(files_read_all) + \
-                 p.ZeroOrMore(Command.format) + \
-                 p.Suppress('QUIT') + p.StringEnd()
-        format.ignore(p.pythonStyleComment)
-        return format.parseString(string)
-
     def load(self, filename):
         with open(filename, 'r') as f:
-            self.extend(self.parse(f.read()))
-            #self.update([(number+1, command) for number, command in enumerate(self.parse(f.read()))])
+            parsed = Grammar.command_interface.parseFile(f)
+            self.batch_commands.extend(parsed.get('batch_commands', []))
+            self.extend(parsed.get('commands', []))
 
-    def save(self, filename, batch_mode=False):
+    def save(self, filename, batch_mode=True):
         """
         Write all the class descriptions to a file, which should have
         the .tci extension.
         """
-        string = str(self)
-        if batch_mode:
-            batch_commands = '\n'.join(['files_read_all {}'.format(tor) for tor in self.files_read_all])
-            string = '\n'.join([batch_commands, string])
         with open(filename, 'w') as f:
-            f.write(string)
+            if batch_mode:
+                f.write('\n'.join([str(bc) for bc in self.batch_commands]) + '\n\n' + str(self))
+            else:
+                f.write(str(self))
 
     def __str__(self):
-        #return '\n\n'.join(['{} cmd_{}'.format(command, index) for index, command in self.iteritems()] + ['QUIT'])
         return '\n\n'.join(['{} cmd_{}'.format(command, index + 1) for index, command in enumerate(self)] + ['QUIT'])
 
-    # This method is identical between CommandInterface and ObjectRepository.
-    # This could be a superclass method.
-    # Fix me for list.
-    def traverse(self, name, thing, action, filter):
-        if filter(name, thing):
-            action(name, thing)
-        elif isinstance(thing, Sequence):
-            for index, element in enumerate(thing):
-                self.traverse(index, element, action, filter)
-        elif isinstance(thing, OrderedDict):
-            for key, value in thing.iteritems():
-                self.traverse(key, value, action, filter)
-
-    def reference(self, repository):
-        """
-        Update references to classes by replacing object names with
-        the actual objects from ObjectRepository repository.
-        """
-        for name, thing in enumerate(self):
-            self.traverse(name,
-                          thing,
-                          lambda name, thing: thing.set(repository[thing.name]),
-                          lambda name, thing: isinstance(thing, Ref))
-                
-    def dereference(self):
-        """
-        Update references to classes by replacing objects with their names.
-        """
-        for name, thing in enumerate(self):
-            self.traverse(name,
-                          thing,
-                          lambda name, thing: thing.set(thing.name),
-                          lambda name, thing: isinstance(thing, Ref))
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__,
+                               super(CommandInterface, self).__repr__())
 
 
-class ObjectRepository(OrderedDict, Grammar):
+class ObjectRepository(OrderedDict):
     """
     This class represents a TICRA Object Repository (.tor) file.
     """
 
-    def parse(self, string):
-        format = p.ZeroOrMore(Physical.format) + p.StringEnd()
-        format.ignore(p.cppStyleComment)
-        #format.ignore(p.pythonStyleComment)
-        return format.parseString(string)
-
     def load(self, filename):
         with open(filename, 'r') as f:
-            self.update([(physical.display_name, physical) for physical in self.parse(f.read())])
-            
+            self.update([(physical.display_name, physical)
+                         for physical in Grammar.object_repository.parseFile(f)])
+
     def save(self, filename):
         """
         Write all the class descriptions to a file, which should have
@@ -208,18 +202,11 @@ class ObjectRepository(OrderedDict, Grammar):
     def __str__(self):
         return '\n \n'.join([str(physical) for physical in self.values()]) + '\n'
 
-    # This method is identical between CommandInterface and ObjectRepository.
-    def traverse(self, name, thing, action, filter):
-        if filter(name, thing):
-            action(name, thing)
-        elif isinstance(thing, Sequence):
-            for index, element in enumerate(thing):
-                self.traverse(index, element, action, filter)
-        elif isinstance(thing, OrderedDict):
-            for key, value in thing.iteritems():
-                self.traverse(key, value, action, filter)
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__,
+                               super(OrderedDict, self).__repr__())
 
-    def extract(self, name, source, careful=False, copy=True):
+    def extract(self, name, source, careful=False):
         """
         Add to this instance the named object from the given source
         and all references on which it depends, all the way up the
@@ -246,72 +233,24 @@ class ObjectRepository(OrderedDict, Grammar):
 
         A repository populated only by calls to this method with
         careful=True should contain all necessary references.
-
-        If copy is False then the objects referenced in this
-        Repository with be the same as those in the source. Active
-        references to other objects will be as expected as long as all
-        objects come from the same source.
-
-        If copy is True this instance will contain copies made using
-        copy.deepcopy(). New Refs created in this way always contain
-        strings and not actual objects, regardless of the format in
-        the source Repository, because the deepcopy operation would
-        otherwise create objects that are identical to but not the
-        same as those in the new repository.
         """
         obj = source[name]
         if name in self and careful:
             pass
         else:
-            self[obj.display_name] = {True: deepcopy(obj), False: obj}[copy]
-            self.traverse(obj.display_name,
-                          obj,
-                          lambda name, thing: self.extract(thing.name, source, careful, copy),
-                          lambda name, thing: isinstance(thing, Ref))
+            self[obj.display_name] = obj
+            obj.traverse(lambda name, thing: isinstance(thing, Ref),
+                         lambda name, thing: self.extract(thing.name, source, careful))
 
-    def reference(self):
-        """
-        Update references to classes by replacing object names with the actual objects.
-        """
-        for name, thing in self.iteritems():
-            self.traverse(name,
-                          thing,
-                          lambda name, thing: thing.set(self[thing.name]),
-                          lambda name, thing: isinstance(thing, Ref))
-                
-    def dereference(self):
-        """
-        Update references to classes by replacing objects with their names.
-        """
-        for name, thing in self.iteritems():
-            self.traverse(name,
-                          thing,
-                          lambda name, thing: thing.set(thing.name),
-                          lambda name, thing: isinstance(thing, Ref))
 
-    
 class Command(OrderedDict):
     """
-    This class is a lightweight container for GRASP commands.
+    This class is a container for GRASP commands.
     
     It inherits from OrderedDict so that it remembers the ordering of its properties.
     """
     
-    format = p.Suppress('COMMAND') + \
-             p.Suppress('OBJECT') + \
-             Grammar.identifier('target_name') + \
-             Grammar.identifier('command_name') + \
-             p.Suppress('(') + \
-             p.Optional(Grammar.members)('members') + \
-             p.Suppress(')') + \
-             p.CaselessLiteral('cmd_').suppress() + \
-             p.Word(p.nums)('number')
-    format.ignore(p.cppStyleComment) # '// comment'
-    format.ignore(p.pythonStyleComment) # '# comment'
-    format.ignore(p.Literal('&'))
-    format.setParseAction(lambda tokens: [Command(list(tokens.get('members', [])), tokens['target_name'], tokens['command_name'])])
-
-    def __init__(self, other={}, target_name=None, command_name=None):
+    def __init__(self, target_name, command_name, other={}):
         super(Command, self).__init__(other)
         self.target_name = str(target_name)
         self.command_name = str(command_name)
@@ -326,7 +265,43 @@ class Command(OrderedDict):
         return ' &\n'.join(lines)
         
     def __repr__(self):
-        return '{}({{{}}}, {!r}, {!r})'.format(self.__class__.__name__, ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.iteritems()]), self.target_name, self.command_name)
+        return '{}({!r}, {!r}, {{{}}})'.format(self.__class__.__name__,
+                                               self.target_name,
+                                               self.command_name,
+                                               ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.iteritems()]))
+
+    # This code is shared between Command and Physical objects. Fix this.
+    def traverse(self, test, action):
+        """
+        Recursively visit all members of this object. See visit() for
+        parameter meanings.
+        """
+        for name, thing in self.iteritems():
+            self.visit(name, thing, test, action)
+        
+    def visit(self, name, thing, test, action):
+        """
+        Recursively visit every member of this object, calling
+        action(name, thing) if test(name, thing) is True.
+        """
+        if test(name, thing):
+            action(name, thing)
+        elif isinstance(thing, Sequence):
+            for index, element in enumerate(thing):
+                self.visit(index, element, test, action)
+        elif isinstance(thing, Struct):
+            for key, value in thing.iteritems():
+                self.visit(key, value, test, action)
+
+
+class BatchCommand(list):
+
+    def __str__(self):
+        return ' '.join(self)
+
+    def __repr__(self):
+        return '{}({})'.format(self.__class__.__name__,
+                               super(BatchCommand, self).__repr__())
 
 
 class Physical(OrderedDict):
@@ -335,16 +310,8 @@ class Physical(OrderedDict):
 
     It inherits from OrderedDict so that it remembers the ordering of its properties.
     """
-    format = Grammar.identifier('display_name') + \
-             Grammar.identifier('class_name') + \
-             p.Suppress('(') + \
-             p.Optional(Grammar.members)('members') + \
-             p.Suppress(')')
-    format.ignore(p.cppStyleComment) # '// comment'
-    format.ignore(p.pythonStyleComment) # '# comment'
-    format.setParseAction(lambda tokens: [Physical(list(tokens.get('members', [])), tokens['display_name'], tokens['class_name'])])
 
-    def __init__(self, other={}, display_name=None, class_name=None):
+    def __init__(self, display_name, class_name, other={}):
         super(Physical, self).__init__(other)
         self.display_name = str(display_name)
         self.class_name = str(class_name)
@@ -359,13 +326,42 @@ class Physical(OrderedDict):
         return '\n'.join(lines)
     
     def __repr__(self):
-        return '{}({{{}}}, {!r}, {!r})'.format(self.__class__.__name__, ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.iteritems()]), self.display_name, self.class_name)
+        return '{}({!r}, {!r}, {{{}}})'.format(self.__class__.__name__, 
+                                               self.display_name,
+                                               self.class_name,
+                                               ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.iteritems()]))
+
+    # This code is shared between Command and Physical objects. Fix this.
+    def traverse(self, test, action):
+        """
+        Recursively visit all members of this object. See visit() for
+        parameter meanings.
+        """
+        for name, thing in self.iteritems():
+            self.visit(name, thing, test, action)
+        
+    def visit(self, name, thing, test, action):
+        """
+        Recursively visit every member of this object, calling
+        action(name, thing) if test(name, thing) is True.
+        """
+        if test(name, thing):
+            action(name, thing)
+        elif isinstance(thing, Sequence):
+            for index, element in enumerate(thing):
+                self.visit(index, element, test, action)
+        elif isinstance(thing, Struct):
+            for key, value in thing.iteritems():
+                self.visit(key, value, test, action)
 
 
 class Ref(object):
     """
     This class is a wrapper for Physical objects. It stops the
-    recursion of __str__ and __repr__ to avoid infinite loops.
+    recursion of __str__ to avoid infinite loops.
+
+    To do: if pointers to actual objects become useful, implement
+    __repr__() to stop infinite loops.
     """
 
     def __init__(self, ref):
@@ -383,19 +379,13 @@ class Ref(object):
             raise ValueError("Invalid Ref: {!r}".format(ref))
         self.ref = ref
 
-    def __deepcopy__(self, memo):
-        """
-        This method prevents the creation of referenced objects that
-        are identical copies of those at the top level of the
-        Repository.
-        """
-        return Ref(self.name)
-        
     def __str__(self):
         return 'ref({})'.format(self.name)
 
+    # This will not work for referenced objects, only strings.
     def __repr__(self):
-        return '{}({}: {})'.format(self.__class__.__name__, self.ref.__class__.__name__, self.name)
+        return '{}({!r})'.format(self.__class__.__name__,
+                                 self.ref)
 
 
 class Struct(OrderedDict):
@@ -404,22 +394,24 @@ class Struct(OrderedDict):
         return 'struct({})'.format(', '.join('{}: {}'.format(k, v) for k, v in self.iteritems()))
 
     def __repr__(self):
-        return '{}({{{}}})'.format(self.__class__.__name__, ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.iteritems()]))
+        return '{}({})'.format(self.__class__.__name__,
+                                   super(OrderedDict, self).__repr__())
 
 
 class Sequence(list):
-    
+
     def __str__(self):
         return 'sequence({})'.format(', '.join(str(s) for s in self))
 
     def __repr__(self):
-        return '{}([{}])'.format(self.__class__.__name__, ', '.join([repr(s) for s in self]))
+        return '{}({})'.format(self.__class__.__name__,
+                               super(Sequence, self).__repr__())
 
 
 class Quantity(object):
     """
-    This class is a lightweight wrapper for a physical quantity that
-    may carry units.
+    This class represents a physical quantity that may or may not
+    carry units.
     """
 
     def __init__(self, number, units=None):
@@ -437,9 +429,10 @@ class Quantity(object):
         self.units = units
 
     def __str__(self):
-        # This uses a lowercase e for exponential notation; GRASP writes
-        # an uppercase E, but can read both. Using repr instead of str
-        # seems to ensure that no rounding occurs.
+        # This uses a lowercase e for exponential notation; GRASP
+        # writes an uppercase E, but can read either. Using repr
+        # instead of str for numbers seems to ensure that no rounding
+        # occurs.
         if self.units is None:
             return '{!r}'.format(self.number)
         else:
@@ -447,6 +440,8 @@ class Quantity(object):
 
     def __repr__(self):
         if self.units is None:
-            return '{}({})'.format(self.__class__.__name__, self.number)
+            return '{}({!r})'.format(self.__class__.__name__, self.number)
         else:
             return '{}({!r}, {!r})'.format(self.__class__.__name__, self.number, self.units)
+
+
