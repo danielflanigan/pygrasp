@@ -258,7 +258,7 @@ class Command(OrderedDict):
     def __str__(self):
         lines = ['COMMAND OBJECT {} {}'.format(self.target_name, self.command_name)]
         lines.append('(')
-        for k, v in self.iteritems():
+        for k, v in self.items():
             lines.append('  {:16s} : {},'.format(k, v))
         lines[-1] = lines[-1].rstrip(',')
         lines.append(')')
@@ -268,7 +268,7 @@ class Command(OrderedDict):
         return '{}({!r}, {!r}, {{{}}})'.format(self.__class__.__name__,
                                                self.target_name,
                                                self.command_name,
-                                               ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.iteritems()]))
+                                               ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.items()]))
 
     # This code is shared between Command and Physical objects. Fix this.
     def traverse(self, test, action):
@@ -276,7 +276,7 @@ class Command(OrderedDict):
         Recursively visit all members of this object. See visit() for
         parameter meanings.
         """
-        for name, thing in self.iteritems():
+        for name, thing in self.items():
             self.visit(name, thing, test, action)
         
     def visit(self, name, thing, test, action):
@@ -290,7 +290,7 @@ class Command(OrderedDict):
             for index, element in enumerate(thing):
                 self.visit(index, element, test, action)
         elif isinstance(thing, Struct):
-            for key, value in thing.iteritems():
+            for key, value in thing.items():
                 self.visit(key, value, test, action)
 
 
@@ -319,7 +319,7 @@ class Physical(OrderedDict):
     def __str__(self):
         lines = ['{}  {}  '.format(self.display_name, self.class_name)]
         lines.append('(')
-        for k, v in self.iteritems():
+        for k, v in self.items():
             lines.append('  {:16s} : {},'.format(k, v))
         lines[-1] = lines[-1].rstrip(',')
         lines.append(')')
@@ -329,7 +329,7 @@ class Physical(OrderedDict):
         return '{}({!r}, {!r}, {{{}}})'.format(self.__class__.__name__, 
                                                self.display_name,
                                                self.class_name,
-                                               ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.iteritems()]))
+                                               ', '.join(['{!r}: {!r}'.format(k, v) for k, v in self.items()]))
 
     # This code is shared between Command and Physical objects. Fix this.
     def traverse(self, test, action):
@@ -337,7 +337,7 @@ class Physical(OrderedDict):
         Recursively visit all members of this object. See visit() for
         parameter meanings.
         """
-        for name, thing in self.iteritems():
+        for name, thing in self.items():
             self.visit(name, thing, test, action)
         
     def visit(self, name, thing, test, action):
@@ -351,7 +351,7 @@ class Physical(OrderedDict):
             for index, element in enumerate(thing):
                 self.visit(index, element, test, action)
         elif isinstance(thing, Struct):
-            for key, value in thing.iteritems():
+            for key, value in thing.items():
                 self.visit(key, value, test, action)
 
 
@@ -391,7 +391,7 @@ class Ref(object):
 class Struct(OrderedDict):
     
     def __str__(self):
-        return 'struct({})'.format(', '.join('{}: {}'.format(k, v) for k, v in self.iteritems()))
+        return 'struct({})'.format(', '.join('{}: {}'.format(k, v) for k, v in self.items()))
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__,
