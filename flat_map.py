@@ -4,48 +4,52 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+from pygrasp.output import Grid
+
 class FlatMap(object):
     """
     This is an abstract class that contains methods useful for
-    maps. It cannot be instantiated.
+    maps.
     
     """
 
     # Subclasses should define these.
     shape = None
     data_type = None
+    indices = {}
 
     def __init__(self):
-        self.X = np.array([0.])
-        self.Y = np.array([0.])
-        self.map = np.zeros((self.shape[0], self.shape[1], 1, 1), dtype=self.data_type)
+        self.x = np.array([0.])
+        self.y = np.array([0.])
+        self.map = np.zeros((self.shape[0], self.shape[1], self.x.size, self.y.size),
+                            dtype=self.data_type)
 
     def dx(self):
         """
         Return the pixel spacing in x.
         """
-        return (self.X[-1] - self.X[0]) / (self.X.size - 1)
+        return (self.x[-1] - self.x[0]) / (self.x.size - 1)
 
     def dy(self):
         """
         Return the pixel spacing in y.
         """
-        return (self.Y[-1] - self.Y[0]) / (self.Y.size - 1)
+        return (self.y[-1] - self.y[0]) / (self.y.size - 1)
 
     def recenter(self, x, y):
         """
         Set the map center to the new coordinates, preserving all
         other aspects of the pixelization.
         """
-        x0 = (self.X[-1] + self.X[0]) / 2
-        y0 = (self.Y[-1] + self.Y[0]) / 2
-        self.X += x - x0
-        self.Y += y - y0
+        x0 = (self.x[-1] + self.x[0]) / 2
+        y0 = (self.y[-1] + self.y[0]) / 2
+        self.x += x - x0
+        self.y += y - y0
 
     def swap(self):
         """
         Return a view of self.map with shape
-        (X.size, Y.size, cls.shape[0], cls.shape[1]).
+        (x.size, y.size, self.shape[0], self.shape[1]).
         Use this for broadcasting into multiple map points.
         """
         return self.map.swapaxes(0, 2).swapaxes(1, 3)
@@ -69,12 +73,12 @@ class FlatMap(object):
         # This is a workaround for the behavior of int_: when given an
         # array of size 1 it returns an int instead of an array.
         if x.size == 1:
-            i_x = np.array([np.int(np.round((x[0] - self.X[0]) / self.dx()))])
-            i_y = np.array([np.int(np.round((y[0] - self.Y[0]) / self.dy()))])
+            i_x = np.array([np.int(np.round((x[0] - self.x[0]) / self.dx()))])
+            i_y = np.array([np.int(np.round((y[0] - self.y[0]) / self.dy()))])
         else:
-            i_x = np.int_(np.round_((x - self.X[0]) / self.dx()))
-            i_y = np.int_(np.round_((y - self.Y[0]) / self.dy()))
-        within = ((0 <= i_x) & (i_x < self.X.size) & (0 <= i_y) & (i_y < self.Y.size))
+            i_x = np.int_(np.round_((x - self.x[0]) / self.dx()))
+            i_y = np.int_(np.round_((y - self.y[0]) / self.dy()))
+        within = ((0 <= i_x) & (i_x < self.x.size) & (0 <= i_y) & (i_y < self.y.size))
         if not clip and not all(within):
             raise ValueError("Not all points are inside the grid bounds, and clipping is not allowed.")
         return i_x, i_y, within
@@ -86,24 +90,23 @@ class FlatMap(object):
         which must all be within the map bounds.
         """
         i_x, i_y, within = self.indices(x, y, clip=False)
-        return self.X[i_x], self.Y[i_y]
+        return self.x[i_x], self.y[i_y]
 
     def save_npy(self, folder):
         os.mkdir(folder)
-        np.save(os.path.join(folder, 'X.npy'), self.X)
-        np.save(os.path.join(folder, 'Y.npy'), self.Y)
+        np.save(os.path.join(folder, 'x.npy'), self.x)
+        np.save(os.path.join(folder, 'y.npy'), self.y)
         np.save(os.path.join(folder, 'map.npy'), self.map)
 
     def load_npy(self, folder):
-        self.X = np.load(os.path.join(folder, 'X.npy'))
-        self.Y = np.load(os.path.join(folder, 'Y.npy'))
+        self.x = np.load(os.path.join(folder, 'x.npy'))
+        self.y = np.load(os.path.join(folder, 'y.npy'))
         self.map = np.load(os.path.join(folder, 'map.npy'))
         assert map.shape[:2] == self.shape
 
     # Switch the plotting methods to return the figure.
-    
     # Work out transposition and extents.
-    def make_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.jet):
+    def make_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot):
         plt.ioff()
         plt.figure()
         plt.imshow(a.T,
@@ -111,19 +114,19 @@ class FlatMap(object):
                    aspect='equal',			 
                    interpolation='nearest',
                    origin='lower',
-                   extent=(self.X[0], self.X[-1], self.Y[0], self.Y[-1]))
+                   extent=(self.x[0], self.x[-1], self.y[0], self.y[-1]))
         plt.colorbar(shrink=0.8, aspect=20*0.8)
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
 
-    def show_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.jet):
+    def show_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot):
         """Create and show a plot of the data or weights map; see make_plot() for usage."""
         self.make_plot(a, title=title, xlabel=xlabel, ylabel=ylabel, color=color)
         plt.ion()
         plt.show()
         
-    def save_plot(self, filename, a, title="", xlabel="", ylabel="", color=plt.cm.jet):
+    def save_plot(self, filename, a, title="", xlabel="", ylabel="", color=plt.cm.hot):
         """Create and save a plot of the data or weights map; see make_plot() for usage."""
         interactive = plt.isinteractive()
         self.make_plot(a, title=title, xlabel=xlabel, ylabel=ylabel, color=color)
@@ -146,8 +149,7 @@ class FlatMap(object):
         plt.contour(a.T,
                     contours,
                     cmap=color,
-                    extent=(self.X[0], self.X[-1], self.Y[0], self.Y[-1]))
-        #plt.colorbar(shrink=0.8, aspect=20*0.8, format='%.3f')
+                    extent=(self.x[0], self.x[-1], self.y[0], self.y[-1]))
         plt.colorbar(shrink=0.8, aspect=20*0.8, format='%3.3g')
         plt.title(title)
         plt.xlabel(xlabel)
@@ -168,232 +170,44 @@ class FlatMap(object):
             plt.close()
 
 
-class Grid(FlatMap):
-
-    # This is the shape of the matrix at each pixel.
-    shape = (2, 1)
-    # This is the map data type.
+class GridMap(FlatMap, Grid):
+    """
+    A FlatMap created from a .grd file. The file handling logic is
+    contained in class pygrasp.output.Grid.
+    
+    This class can be created from near field, far field, and coupling
+    .grd files.  Implement subclasses if necessary.
+    """
     data_type = np.complex
+    # Subclasses should define the meaning of the map indices.
 
-    # This is the mapping between array indices and Jones vector components.
-    jones = {0: 'co', 'co': 0,
-             1: 'cx', 'cx': 1}
-
-    def __init__(self, filename=None):
-        """
-        Create a new grid file. If a filename is supplied, load the
-        data from that file, otherwise create a blank grid.
-        """
-        if filename is None:
-            super(Grid, self).__init__()
-        else:
-            self.load_grd(filename)
-
-    def load_grd(self, filename, near_field=False):
-        """
-        Read and parse data from the GRASP .grd file. The variables in
-        capital letters match those in the GRASP-10 manual.
-        """
-        with open(filename, 'r') as f:
-            self.header = []
-            self.header.append(f.readline().rstrip('\n'))
-            while self.header[-1] != '++++':
-                self.header.append(f.readline().rstrip('\n'))
-
-            # These determine the type of grid and the field format.
-            self.KTYPE = int(f.readline().split()[0])
-            if self.KTYPE != 1:
-                raise ValueError("Not implemented.")
-            self.NSET, self.ICOMP, self.NCOMP, self.IGRID = [int(s) for s in f.readline().split()]
-
-            # The grid center in units of the x and y grid spacing.
-            self.IX, self.IY = [int(s) for s in f.readline().split()]
-
-            # These are the x and y grid limits: S is lower, and E is upper.
-            self.XS, self.YS, self.XE, self.YE = [float(s) for s in f.readline().split()]
-            
-            # These are the numbers of grid points in x and y.
-            self.NX, self.NY, self.KLIMIT = [int(s) for s in f.readline().split()]
-            if self.KLIMIT != 0:
-                raise ValueError("Not implemented.")
-
-            # This handles numbers that have three-digit exponents, which GRASP
-            # writes as, e.g., 0.123456789-100 for 1.23456789E-99
-            def convert(s):
-                try:
-                    return float(s)
-                except ValueError:
-                    if '-' in s[1:]:
-                        return float('E-'.join(s.rsplit('-', 1)))
-                    else:
-                        return float('E+'.join(s.rsplit('+', 1)))
-
-            # Load the field data.
-            conv = dict([(column, convert) for column in range(2 * self.shape[0])])
-            data = np.loadtxt(f, dtype=float, converters=conv)
-            
-        # Determine the grid spacing and center values.
-        self.DX = (self.XE - self.XS) / (self.NX - 1)
-        self.DY = (self.YE - self.YS) / (self.NY - 1)
-        self.XCEN = self.DX * self.IX
-        self.YCEN = self.DY * self.IY
-
-        # Determine the x and y grid values.
-        self.X = self.XCEN + np.linspace(self.XS, self.XE, self.NX)
-        self.Y = self.YCEN + np.linspace(self.YS, self.YE, self.NY)        
-
-        # Organize the data. The manual says that the file is
-        # organized so that X varies faster than Y, which corresponds
-        # to column-major (Fortran) ordering in the reshape.
-        E_co = (data[:, 0] + 1j * data[:, 1]).reshape(self.NX, self.NY, order='F')
-        E_cx = (data[:, 2] + 1j * data[:, 3]).reshape(self.NX, self.NY, order='F')
-        self.map = np.array([[E_co], [E_cx]])
+    # Since a generic grid doesn't have a shape, there's no way to
+    # make a generic blank.
+    def __init__(self, filename):
+        self.meta, data = self.load_grd(filename)
+        self.x = self.meta['XCEN'] + np.linspace(self.meta['XS'], self.meta['XE'], self.meta['NX'])
+        self.y = self.meta['YCEN'] + np.linspace(self.meta['YS'], self.meta['YE'], self.meta['NY'])
+        self.shape = (self.meta['NCOMP'], 1)
+        self.map = np.array([[(data[:, 2*c] +
+                               1j * data[:, 2*c+1]).reshape(self.meta['NX'], self.meta['NY'], order='F')]
+                             for c in range(self.shape[0])])
 
     def save_grd(self, filename):
-        """
-        Write the data in this Grid to a new .grd file. Will not overwrite.
-        """
-        if os.path.exists(filename):
-            raise ValueError("File already exists: {}".format(filename))
-        with open(filename, 'w') as f:
-            for line in self.header:
-                f.write('{}\n'.format(line))
-            f.write('{:2d}\n'.format(self.KTYPE))
-            f.write('{:12d}{:12d}{:12d}{:12d}\n'.format(self.NSET, self.ICOMP, self.NCOMP, self.IGRID))
-            f.write('{:12d}{:12d}\n'.format(self.IX, self.IY))
-            f.write(' {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E}\n'.format(self.XS, self.YS, self.XE, self.YE))
-            f.write('{:12d}{:12d}{:12d}\n'.format(self.NX, self.NY, self.KLIMIT))
-            # This creates new views into the arrays, not copies.
-            E_co = self.map[0, 0].reshape(self.NX * self.NY, order='F')
-            E_cx = self.map[1, 0].reshape(self.NX * self.NY, order='F')
-            for i in range(self.NX * self.NY):
-                f.write(' {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E}\n'.format(E_co[i].real, E_co[i].imag, E_cx[i].real, E_cx[i].imag))
-
-
-# Fix these class names. This and FarFieldGrid should both inherit from a GridMap or something.
-class NearFieldGrid(FlatMap):
-
-    # This is the shape of the matrix at each pixel.
-    shape = (3, 1)
-    # This is the map data type.
-    data_type = np.complex
-
-    # This is the mapping between array indices and Jones vector components.
-    # This should be called something generic. Fix me.
-    jones = {0: 'co', 'co': 0,
-             1: 'cx', 'cx': 1,
-             2: 'r', 'r': 2}
-
-    def __init__(self, filename=None):
-        """
-        Create a new grid file. If a filename is supplied, load the
-        data from that file, otherwise create a blank grid.
-        """
-        if filename is None:
-            super(Grid, self).__init__()
-        else:
-            self.load_grd(filename)
-
-    def load_grd(self, filename):
-        """
-        Read and parse data from the GRASP .grd file. The variables in
-        capital letters match those in the GRASP-10 manual.
-        """
-        with open(filename, 'r') as f:
-            self.header = []
-            self.header.append(f.readline().rstrip('\n'))
-            while self.header[-1] != '++++':
-                self.header.append(f.readline().rstrip('\n'))
-
-            # These determine the type of grid and the field format.
-            self.KTYPE = int(f.readline().split()[0])
-            if self.KTYPE != 1:
-                raise ValueError("Not implemented.")
-            self.NSET, self.ICOMP, self.NCOMP, self.IGRID = [int(s) for s in f.readline().split()]
-
-            # The grid center in units of the x and y grid spacing.
-            self.IX, self.IY = [int(s) for s in f.readline().split()]
-
-            # These are the x and y grid limits: S is lower, and E is upper.
-            self.XS, self.YS, self.XE, self.YE = [float(s) for s in f.readline().split()]
-            
-            # These are the numbers of grid points in x and y.
-            self.NX, self.NY, self.KLIMIT = [int(s) for s in f.readline().split()]
-            if self.KLIMIT != 0:
-                raise ValueError("Not implemented.")
-
-            # This handles numbers that have three-digit exponents, which GRASP
-            # writes as, e.g., 0.123456789-100 for 1.23456789E-99
-            def convert(s):
-                try:
-                    return float(s)
-                except ValueError:
-                    if '-' in s[1:]:
-                        return float('E-'.join(s.rsplit('-', 1)))
-                    else:
-                        return float('E+'.join(s.rsplit('+', 1)))
-
-            # Load the field data.
-            conv = dict([(column, convert) for column in range(2 * self.shape[0])])
-            data = np.loadtxt(f, dtype=float, converters=conv)
-            
-        # Determine the grid spacing and center values.
-        self.DX = (self.XE - self.XS) / (self.NX - 1)
-        self.DY = (self.YE - self.YS) / (self.NY - 1)
-        self.XCEN = self.DX * self.IX
-        self.YCEN = self.DY * self.IY
-
-        # Determine the x and y grid values.
-        self.X = self.XCEN + np.linspace(self.XS, self.XE, self.NX)
-        self.Y = self.YCEN + np.linspace(self.YS, self.YE, self.NY)        
-
-        # Organize the data. The manual says that the file is
-        # organized so that X varies faster than Y, which corresponds
-        # to column-major (Fortran) ordering in the reshape.
-        E = []
-        # New
-        for n in range(self.shape[0]):
-            E.append([(data[:, 2*n] + 1j * data[:, 2*n+1]).reshape(self.NX, self.NY, order='F')])
-        #E_co = (data[:, 0] + 1j * data[:, 1]).reshape(self.NX, self.NY, order='F')
-        #E_cx = (data[:, 2] + 1j * data[:, 3]).reshape(self.NX, self.NY, order='F')
-        #E_r = (data[:, 4] + 1j * data[:, 5]).reshape(self.NY, self.NY, order='F')
-        #self.map = np.array([[E_co], [E_cx], [E_r]])
-        self.map = np.array(E)
-
-    def save_grd(self, filename):
-        """
-        Write the data in this Grid to a new .grd file. Will not overwrite.
-        """
-        if os.path.exists(filename):
-            raise ValueError("File already exists: {}".format(filename))
-        with open(filename, 'w') as f:
-            for line in self.header:
-                f.write('{}\n'.format(line))
-            f.write('{:2d}\n'.format(self.KTYPE))
-            f.write('{:12d}{:12d}{:12d}{:12d}\n'.format(self.NSET, self.ICOMP, self.NCOMP, self.IGRID))
-            f.write('{:12d}{:12d}\n'.format(self.IX, self.IY))
-            f.write(' {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E}\n'.format(self.XS, self.YS, self.XE, self.YE))
-            f.write('{:12d}{:12d}{:12d}\n'.format(self.NX, self.NY, self.KLIMIT))
-            # This creates new views into the arrays, not copies.
-            E_co = self.map[0, 0].reshape(self.NX * self.NY, order='F')
-            E_cx = self.map[1, 0].reshape(self.NX * self.NY, order='F')
-            # New
-            E_r = self.map[2, 0].reshape(self.NX * self.NY, order='F')
-            for i in range(self.NX * self.NY):
-                # New
-                f.write(' {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E}\n'.format(E_co[i].real, E_co[i].imag, E_cx[i].real, E_cx[i].imag, E_r.real, E_r.imag))
+        points = self.meta['NX'] * self.meta['NY']
+        components = self.meta['NCOMP']
+        data = np.empty((points, 2 * components))
+        for component in range(components):
+            data[:, 2*component] = self.map[component, 0].reshape(points, order='F').real
+            data[:, 2*component+1] = self.map[component, 0].reshape(points, order='F').imag
+        super(GridMap, self).save_grd(filename, self.meta, data)
 
 
 class JonesMap(FlatMap):
 
-    # This is the shape of the matrix at each pixel.
     shape = (2, 2)
-    # This is the map data type.
     data_type = np.complex
-
-    # This is the mapping between array indices and Jones vector components.
-    jones = {0: 'co', 'co': 0,
-             1: 'cx', 'cx': 1}
+    indices = {0: 'co', 'co': 0,
+               1: 'cx', 'cx': 1}
 
     def __init__(self, co=None, cx=None):
         """
@@ -402,7 +216,7 @@ class JonesMap(FlatMap):
         if co is None and cx is None:
             super(JonesMap, self).__init__()
         else:
-            assert(isinstance(co, Grid) and isinstance(cx, Grid))            
+            assert(isinstance(co, GridMap) and isinstance(cx, GridMap))
             assert(all(co.X == cx.X))
             self.X = co.X
             assert(all(co.Y == cx.Y))
@@ -460,10 +274,10 @@ class MuellerMap(FlatMap):
     data_type = np.float
 
     # This is the mapping between array indices and Stokes parameters.
-    stokes = {0: 'T', 'T': 0,
-              1: 'Q', 'Q': 1,
-              2: 'U', 'U': 2,
-              3: 'V', 'V': 3}
+    indices = {0: 'T', 'T': 0,
+               1: 'Q', 'Q': 1,
+               2: 'U', 'U': 2,
+               3: 'V', 'V': 3}
 
     A = np.mat(np.array([[1,   0,   0,   1],
                          [1,   0,   0,  -1],
