@@ -4,7 +4,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from pygrasp.output import Grid
+from pygrasp.output import load_grd, save_grd
 
 class FlatMap(object):
     """
@@ -16,7 +16,7 @@ class FlatMap(object):
     # Subclasses should define these.
     shape = None
     data_type = None
-    indices = {}
+    key = {}
 
     def __init__(self):
         self.x = np.array([0.])
@@ -93,175 +93,263 @@ class FlatMap(object):
         return self.x[i_x], self.y[i_y]
 
     def save_npy(self, folder):
+        """
+        Save x.npy, y.npy, and map.npy arrays to the given folder, which must not exist.
+        """
         os.mkdir(folder)
+        np.save(os.path.join(folder, 'map.npy'), self.map)
         np.save(os.path.join(folder, 'x.npy'), self.x)
         np.save(os.path.join(folder, 'y.npy'), self.y)
-        np.save(os.path.join(folder, 'map.npy'), self.map)
 
     def load_npy(self, folder):
+        """
+        Return this instance after loading x.npy, y.npy, and map.npy
+        arrays from the given folder. This allows, for example,
+        mueller = MuellerMap().load_npy('/saved/mueller/map/folder')
+        """
+        map = np.load(os.path.join(folder, 'map.npy'))
+        if map.shape[:2] != self.shape:
+            raise ValueError("Array shape {} does not match map shape {}.".format(map.shape, self.shape))
+        if map.dtype != self.data_type:
+            raise ValueError("Array data type {} does not match map data type {}.".format(map.dtype, self.data_type))
+        self.map = map
         self.x = np.load(os.path.join(folder, 'x.npy'))
         self.y = np.load(os.path.join(folder, 'y.npy'))
-        self.map = np.load(os.path.join(folder, 'map.npy'))
-        assert map.shape[:2] == self.shape
+        return self
 
-    # Switch the plotting methods to return the figure.
-    # Work out transposition and extents.
-    def make_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot):
+    @classmethod
+    def coadd(cls, maps):
+        # Check pixel spacing; np.spacing(1) is the difference between
+        # 1 and the next float, or about 2.2e-16 on my machine.
+        tolerance = np.spacing(1)
+        m0 = maps[0]
+        if not all([abs(m.dx() - m0.dx()) < tolerance and
+                    abs(m.dy() - m0.dy()) < tolerance for m in maps]):
+            raise ValueError("Cannot coadd maps with different pixel spacings.")
+        # Find the edges of the new map and its pixelization.
+        x_min = min([m.x[0] for m in maps])
+        x_max = max([m.x[-1] for m in maps])
+        y_min = min([m.y[0] for m in maps])
+        y_max = max([m.y[-1] for m in maps])
+        # Check that this is ideal.
+        nx = 1 + int(round((x_max - x_min) / m0.dx()))
+        ny = 1 + int(round((y_max - y_min) / m0.dy()))
+        coadded = cls()
+        coadded.x = np.linspace(x_min, x_max, nx)
+        coadded.y = np.linspace(y_min, y_max, ny)
+        coadded.map = np.zeros((cls.shape[0], cls.shape[1], nx, ny),
+                               dtype=cls.data_type)
+        for m in maps:
+            i_x, i_y, within = coadded.indices(m.x, m.y)
+            coadded.map[:, :, i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += m.map
+        return coadded
+
+    def make_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot, vmin=None, vmax=None):
+        """
+        Return a plot of the given array with horizontal axis self.x
+        and vertical axis self.y. The array is transposed so that the
+        first axis is horizontal and the second axis is vertical. The
+        [0, 0] element of the array is in the lower left corner.
+        """
+        if vmin is None:
+            vmin = np.min(a)
+        if vmax is None:
+            vmax = np.max(a)
         plt.ioff()
-        plt.figure()
+        fig = plt.figure()
         plt.imshow(a.T,
                    cmap=color,
                    aspect='equal',			 
                    interpolation='nearest',
+                   vmin=vmin,
+                   vmax=vmax,
                    origin='lower',
                    extent=(self.x[0], self.x[-1], self.y[0], self.y[-1]))
-        plt.colorbar(shrink=0.8, aspect=20*0.8)
+        plt.colorbar()
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
+        return fig
 
-    def show_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot):
-        """Create and show a plot of the data or weights map; see make_plot() for usage."""
-        self.make_plot(a, title=title, xlabel=xlabel, ylabel=ylabel, color=color)
+    def show_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot, vmin=None, vmax=None):
+        """
+        Display and return a plot of the given array; see make_plot()
+        for usage.
+        """
+        fig = self.make_plot(a, title, xlabel, ylabel, color, vmin, vmax)
         plt.ion()
         plt.show()
+        return fig
         
-    def save_plot(self, filename, a, title="", xlabel="", ylabel="", color=plt.cm.hot):
-        """Create and save a plot of the data or weights map; see make_plot() for usage."""
+    def save_plot(self, filename, a, title="", xlabel="", ylabel="", color=plt.cm.hot, vmin=None, vmax=None):
+        """
+        Save a plot of the given array; see make_plot() for usage.
+        """
         interactive = plt.isinteractive()
-        self.make_plot(a, title=title, xlabel=xlabel, ylabel=ylabel, color=color)
+        fig = self.make_plot(a, title, xlabel, ylabel, color, vmin, vmax)
         plt.savefig(filename)
         if interactive:
             plt.ion()
+            return fig
         else:
             plt.close()
 
-    # Work out transposition and extents.
     def make_contour(self, a, contours=None, title="", xlabel="", ylabel="", color=plt.cm.jet):
         """
-        Create a contour plot of the given array a with the map
-        shape.
+        Return a contour plot of the given array with horizontal axis
+        self.x and vertical axis self.y. The array is transposed so
+        that the first axis is horizontal and the second axis is
+        vertical. The [0, 0] element of the array is in the lower left
+        corner.
         """
         if contours is None:
             contours = np.linspace(np.min(a.flatten()), np.max(a.flatten()), 10)
         plt.ioff()
-        plt.figure()
+        fig = plt.figure()
         plt.contour(a.T,
                     contours,
                     cmap=color,
                     extent=(self.x[0], self.x[-1], self.y[0], self.y[-1]))
-        plt.colorbar(shrink=0.8, aspect=20*0.8, format='%3.3g')
+        plt.colorbar(format='%3.3g')
         plt.title(title)
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
+        return fig
 
     def show_contour(self, a, contours=None, title="", xlabel="", ylabel="", color=plt.cm.jet):
-        self.make_contour(a, contours, title, xlabel, ylabel, color)
+        """
+        Display and return a contour plot of the given array; see
+        make_plot() for usage.
+        """
+        fig = self.make_contour(a, contours, title, xlabel, ylabel, color)
         plt.ion()
         plt.show()
+        return fig
         
     def save_contour(self, filename, a, contours=None, title="", xlabel="", ylabel="", color=plt.cm.jet):
+        """
+        Save a contour plot of the given array; see make_plot() for usage.
+        """
         interactive = plt.isinteractive()
-        self.make_contour(a, contours, title, xlabel, ylabel, color)
+        fig = self.make_contour(a, contours, title, xlabel, ylabel, color)
         plt.savefig(filename)
         if interactive:
             plt.ion()
+            return fig
         else:
             plt.close()
 
+    def cut(self, component, angle, center=(0, 0), single_sided=False):
+        angle = np.mod(angle, 2 * np.pi)
+        # This shifts the line slightly, but ensures that the center
+        # pixel is always part of the cut.
+        # Replace after changing coordinates to accept and return
+        # scalars:
+        # x0, y0 = self.coordinates(*center)
+        x0, y0 = self.coordinates(np.array([center[0]]), np.array([center[1]]))
+        x0 = x0[0]
+        y0 = y0[0]
+        if (np.pi / 4 < angle < 3 * np.pi / 4 or
+            5 * np.pi / 4 < angle < 7 * np.pi / 4):
+            parity = np.sign(np.sin(angle))
+            y = self.y[::parity]
+            nonnegative = parity * (y - y0) >= 0
+            # There is no vectorized cotangent.
+            x = x0 + (y - y0) * np.cos(angle) / np.sin(angle)
+        else:
+            parity = np.sign(np.cos(angle))
+            x = self.x[::parity]
+            nonnegative = parity * (x - x0) >= 0
+            y = y0 + (x - x0) * np.tan(angle)
+        i_x, i_y, within = self.indices(x, y, clip=True)
+        i_x = i_x[within]
+        i_y = i_y[within]
+        nonnegative = nonnegative[within]
+        r = np.sqrt((self.x[i_x]-x0)**2 + (self.y[i_y]-y0)**2) * np.where(nonnegative, 1, -1)
+        cut = self.dB(component)[i_x, i_y]
+        if single_sided:
+            return r[nonnegative], cut[nonnegative]
+        else:
+            return r, cut
 
-class GridMap(FlatMap, Grid):
+
+class GridMap(FlatMap):
     """
     A FlatMap created from a .grd file. The file handling logic is
-    contained in class pygrasp.output.Grid.
+    contained in pygrasp.output.
     
-    This class can be created from near field, far field, and coupling
-    .grd files.  Implement subclasses if necessary.
+    This class can load near field, far field, and coupling .grd
+    files.  It currently cannot load elliptically truncated
+    grids. Implement subclasses if necessary.
     """
     data_type = np.complex
-    # Subclasses should define the meaning of the map indices.
+    # Subclasses should define the key to the map indices.
 
-    # Since a generic grid doesn't have a shape, there's no way to
-    # make a generic blank.
-    def __init__(self, filename):
-        self.meta, data = self.load_grd(filename)
+    def __init__(self, filename=None):
+        if filename is None:
+            self.shape = (1, 1)
+            super(GridMap, self).__init__()
+        else:
+            self.load_grd(filename)
+
+    def load_grd(self, filename):
+        self.meta, self.map = load_grd(filename)
+        self.shape = self.map.shape[:2]
+        # Check that XS and XE are offsets.
         self.x = self.meta['XCEN'] + np.linspace(self.meta['XS'], self.meta['XE'], self.meta['NX'])
         self.y = self.meta['YCEN'] + np.linspace(self.meta['YS'], self.meta['YE'], self.meta['NY'])
-        self.shape = (self.meta['NCOMP'], 1)
-        self.map = np.array([[(data[:, 2*c] +
-                               1j * data[:, 2*c+1]).reshape(self.meta['NX'], self.meta['NY'], order='F')]
-                             for c in range(self.shape[0])])
 
     def save_grd(self, filename):
-        points = self.meta['NX'] * self.meta['NY']
-        components = self.meta['NCOMP']
-        data = np.empty((points, 2 * components))
-        for component in range(components):
-            data[:, 2*component] = self.map[component, 0].reshape(points, order='F').real
-            data[:, 2*component+1] = self.map[component, 0].reshape(points, order='F').imag
-        super(GridMap, self).save_grd(filename, self.meta, data)
+        save_grd(filename, self.meta, self.map)
+
+    def load_npy(self, folder, shape):
+        """
+        Load x.npy, y.npy, and map.npy arrays from the given
+        folder. Shape is a tuple of length 2 that must match
+        map[:2]. This is necessary because a generic GridMap can take
+        different shapes depending on the number of components in the
+        grid.
+        """
+        self.shape = shape
+        return super(GridMap, self).load_npy(folder)
+
+    def dB(self, component):
+        """
+        Return the given map component in decibels.
+        """
+        return 20 * np.log10(abs(self.map[component, 0]))
 
 
 class JonesMap(FlatMap):
 
     shape = (2, 2)
     data_type = np.complex
-    indices = {0: 'co', 'co': 0,
-               1: 'cx', 'cx': 1}
+    key = {0: 'co', 'co': 0,
+           1: 'cx', 'cx': 1}
 
     def __init__(self, co=None, cx=None):
         """
-        Create a new empty JonesMap or create one from two Grid instances.
+        Create a new empty JonesMap or create one from two GridMap instances.
         """
         if co is None and cx is None:
             super(JonesMap, self).__init__()
         else:
-            assert(isinstance(co, GridMap) and isinstance(cx, GridMap))
-            assert(all(co.X == cx.X))
-            self.X = co.X
-            assert(all(co.Y == cx.Y))
-            self.Y = co.Y
+            if not all(co.x == cx.x):
+                raise ValueError("Map x values differ.")
+            self.x = co.x
+            if not all(co.y == cx.y):
+                raise ValueError("Map y values dziffer.")
+            self.y = co.y
             # Create a Jones matrix map with
-            # map.shape = (2, 2, X.size, Y.size)
+            # map.shape = (2, 2, x.size, y.size)
             self.map = np.array([[co.map[0, 0], cx.map[0, 0]],
                                  [co.map[1, 0], cx.map[1, 0]]])
-
-    # Not yet tested.
-    # Move to FlatMap?
-    @classmethod
-    def coadd(cls, jones_maps):
-        assert all([isinstance(j, JonesMap) for j in jones_maps])
-        # Ensure all maps have the same pixel spacing.
-        j0 = jones_maps[0]
-        # Check pixel spacing.
-        assert all([j.dx() == j0.dx() and
-                    j.dy() == j0.dy() for j in jones_maps])
-        # Find the edges of the new map and its pixelization.
-        x_min = min([j.X[0] for j in jones_maps])
-        x_max = max([j.X[-1] for j in jones_maps])
-        y_min = min([j.Y[0] for j in jones_maps])
-        y_max = max([j.Y[-1] for j in jones_maps])
-        # Check that this is ideal.
-        nx = 1 + int(round((x_max - x_min) / j0.dx()))
-        ny = 1 + int(round((y_max - y_min) / j0.dy()))
-        coadded = JonesMap()
-        coadded.X = np.linspace(x_min, x_max, nx)
-        coadded.Y = np.linspace(y_min, y_max, ny)
-        coadded.map = np.zeros((JonesMap.shape[0],
-                                JonesMap.shape[1],
-                                coadded.X.size,
-                                coadded.Y.size),
-                               dtype=np.complex)
-        for j in jones_maps:
-            i_x, i_y, within = coadded.indices(j.X, j.Y)
-            coadded.map[:, :, i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += j.map
-        return coadded
 
     # It's not clear what this means.
     def invert(self):
         map = np.empty((self.map.shape))
-        for x in range(self.X.size):
-            for y in range(self.Y.size):
+        for x in range(self.x.size):
+            for y in range(self.y.size):
                 map[:, :, x, y] = np.mat(self.map[:, :, x, y]).getI()
         self.map = map
 
@@ -274,10 +362,10 @@ class MuellerMap(FlatMap):
     data_type = np.float
 
     # This is the mapping between array indices and Stokes parameters.
-    indices = {0: 'T', 'T': 0,
-               1: 'Q', 'Q': 1,
-               2: 'U', 'U': 2,
-               3: 'V', 'V': 3}
+    key = {0: 'T', 'T': 0,
+           1: 'Q', 'Q': 1,
+           2: 'U', 'U': 2,
+           3: 'V', 'V': 3}
 
     A = np.mat(np.array([[1,   0,   0,   1],
                          [1,   0,   0,  -1],
@@ -292,64 +380,39 @@ class MuellerMap(FlatMap):
         if jones_map is None:
             super(MuellerMap, self).__init__()
         else:
-            assert isinstance(jones_map, JonesMap)
-            self.X = jones_map.X
-            self.Y = jones_map.Y
+            self.x = jones_map.x
+            self.y = jones_map.y
             J = jones_map.map
             self.map = np.empty((self.shape[0],
                                  self.shape[1],
-                                 self.X.size,
-                                 self.Y.size),
+                                 self.x.size,
+                                 self.y.size),
                                 dtype='float')
-            for x in range(self.X.size):
-                for y in range(self.Y.size):
+            for x in range(self.x.size):
+                for y in range(self.y.size):
                     J_xy = np.mat(J[:, :, x, y])
                     # The matrix cast is redundant since numpy takes *
                     # to mean matrix multiplication when either element
                     # is a matrix.
                     M_xy = self.A * np.mat(np.kron(J_xy, J_xy.conj())) * self.AI
-                    assert np.all(M_xy.imag == 0), "Nonzero complex value in M."
+                    if np.any(M_xy.imag):
+                        raise ValueError("Nonzero complex value in M.")
                     self.map[:, :, x, y] = M_xy.real
 
     # Figure out what this means.
     def inverse_from_jones(self, jones_map):
-        assert isinstance(jones_map, JonesMap)
-        self.X = jones_map.X
-        self.Y = jones_map.Y
+        self.x = jones_map.x
+        self.y = jones_map.y
         J = jones_map.map
-        self.map = np.empty((4, 4, self.X.size, self.Y.size), dtype='float')
-        for x in range(self.X.size):
-            for y in range(self.Y.size):
+        self.map = np.empty((4, 4, self.x.size, self.y.size), dtype='float')
+        for x in range(self.x.size):
+            for y in range(self.y.size):
                 J_xy = np.mat(J[:, :, x, y])
                 M_xy = np.mat(self.A * np.kron(J_xy, J_xy.conj()) * self.AI).getI()
-                assert np.all(M_xy.imag == 0), "Nonzero complex value in map."
+                if np.any(M_xy.imag):
+                    raise ValueError("Nonzero complex value in M.")
                 self.map[:, :, x, y] = M_xy.real
         
-    @classmethod
-    def coadd(cls, mueller_maps):
-        assert all([isinstance(m, MuellerMap) for m in mueller_maps])
-        # Check pixel spacing; np.spacing(1) is the difference between
-        # 1 and the next float, or about 2.2e-16 on my machine.
-        m0 = mueller_maps[0]
-        assert all([abs(m.dx() - m0.dx()) < np.spacing(1) and
-                    abs(m.dy() - m0.dy()) < np.spacing(1) for m in mueller_maps])
-        # Find the edges of the new map and its pixelization.
-        x_min = min([m.X[0] for m in mueller_maps])
-        x_max = max([m.X[-1] for m in mueller_maps])
-        y_min = min([m.Y[0] for m in mueller_maps])
-        y_max = max([m.Y[-1] for m in mueller_maps])
-        # Check that this is ideal.
-        nx = 1 + int(round((x_max - x_min) / m0.dx()))
-        ny = 1 + int(round((y_max - y_min) / m0.dy()))
-        coadded = MuellerMap()
-        coadded.X = np.linspace(x_min, x_max, nx)
-        coadded.Y = np.linspace(y_min, y_max, ny)
-        coadded.M = np.zeros((4, 4, coadded.X.size, coadded.Y.size))
-        for m in mueller_maps:
-            i_x, i_y, within = coadded.indices(m.X, m.Y)
-            coadded.M[:, :, i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += m.M
-        return coadded
-
     # Figure out how to create a title and axes labels.
     def contour_tile(self, color=None):
         plt.ioff()
@@ -357,7 +420,7 @@ class MuellerMap(FlatMap):
         for i in range(4):
             for j in range(4):
                 # Verify.
-                name = '{}{}'.format(self.stokes[i], self.stokes[j])
+                name = self.key[i] + self.key[j]
                 sub = plt.subplot(4, 4, 4 * i + j + 1)
                 sub.axes.get_xaxis().set_visible(False)
                 sub.axes.get_yaxis().set_visible(False)
@@ -381,7 +444,7 @@ class MuellerMap(FlatMap):
         fig = plt.figure(figsize=(8, 8))
         for i in range(4):
             for j in range(4):
-                name = '{}{}'.format(self.stokes[j], self.stokes[i])
+                name = self.key[i] + self.key[j]
                 sub = plt.subplot(4, 4, 4 * i + j + 1)
                 sub.axes.get_xaxis().set_visible(False)
                 sub.axes.get_yaxis().set_visible(False)
