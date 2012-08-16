@@ -14,14 +14,14 @@ class FlatMap(object):
     """
 
     # Subclasses should define these.
-    shape = None
+    shape = ()
     data_type = None
     key = {}
 
     def __init__(self):
         self.x = np.array([0.])
         self.y = np.array([0.])
-        self.map = np.zeros((self.shape[0], self.shape[1], self.x.size, self.y.size),
+        self.map = np.zeros(self.shape + (self.x.size, self.y.size),
                             dtype=self.data_type)
 
     def dx(self):
@@ -46,19 +46,11 @@ class FlatMap(object):
         self.x += x - x0
         self.y += y - y0
 
-    def swap(self):
-        """
-        Return a view of self.map with shape
-        (x.size, y.size, self.shape[0], self.shape[1]).
-        Use this for broadcasting into multiple map points.
-        """
-        return self.map.swapaxes(0, 2).swapaxes(1, 3)
-
     def indices(self, x, y, clip=False):
         """
         Return the grid pixel indices (i_x, i_y) corresponding to the
-        given grid coordinates. Arrays x and y must have the same
-        length. Also, return a boolean array of the same length that
+        given arrays of grid coordinates. Arrays x and y must have the
+        same size. Also return a boolean array of the same length that
         is True where the pixels are within the grid bounds and False
         elsewhere.
 		
@@ -83,6 +75,20 @@ class FlatMap(object):
             raise ValueError("Not all points are inside the grid bounds, and clipping is not allowed.")
         return i_x, i_y, within
 
+    def single_indices(self, x, y):
+        """
+        Return the grid pixel indices (i_x, i_y) corresponding to the
+        given grid coordinates, where x and y are numbers.
+        same size. Also return a boolean that
+        is True if the point pixels are within the grid bounds and False
+        elsewhere.
+        """
+        i_x = int(round((x - self.x[0]) / self.dx()))
+        i_y = int(round((y - self.y[0]) / self.dy()))
+        if not ((0 <= i_x) & (i_x < self.x.size) & (0 <= i_y) & (i_y < self.y.size)):
+            raise ValueError("The point is not inside the grid bounds.")
+        return i_x, i_y
+
     def coordinates(self, x, y):
         """
         Return two arrays (c_x, c_y) containing the pixel center
@@ -90,6 +96,16 @@ class FlatMap(object):
         which must all be within the map bounds.
         """
         i_x, i_y, within = self.indices(x, y, clip=False)
+        return self.x[i_x], self.y[i_y]
+
+    def single_coordinates(self, x, y):
+        """
+        Return two numbers (c_x, c_y) representing the pixel center
+        coordinates corresponding to the given (x, y)
+        coordinates. Raise a ValueError if the given point is not
+        within the map bounds.
+        """
+        i_x, i_y = self.single_indices(x, y)
         return self.x[i_x], self.y[i_y]
 
     def save_npy(self, folder):
@@ -239,16 +255,11 @@ class FlatMap(object):
         else:
             plt.close()
 
-    def cut(self, component, angle, center=(0, 0), single_sided=False):
+    def cut(self, a, angle, center=(0, 0), single_sided=False):
         angle = np.mod(angle, 2 * np.pi)
         # This shifts the line slightly, but ensures that the center
         # pixel is always part of the cut.
-        # Replace after changing coordinates to accept and return
-        # scalars:
-        # x0, y0 = self.coordinates(*center)
-        x0, y0 = self.coordinates(np.array([center[0]]), np.array([center[1]]))
-        x0 = x0[0]
-        y0 = y0[0]
+        x0, y0 = self.single_coordinates(*center)
         if (np.pi / 4 < angle < 3 * np.pi / 4 or
             5 * np.pi / 4 < angle < 7 * np.pi / 4):
             parity = np.sign(np.sin(angle))
@@ -266,7 +277,7 @@ class FlatMap(object):
         i_y = i_y[within]
         nonnegative = nonnegative[within]
         r = np.sqrt((self.x[i_x]-x0)**2 + (self.y[i_y]-y0)**2) * np.where(nonnegative, 1, -1)
-        cut = self.dB(component)[i_x, i_y]
+        cut = a[i_x, i_y]
         if single_sided:
             return r[nonnegative], cut[nonnegative]
         else:
@@ -383,11 +394,8 @@ class MuellerMap(FlatMap):
             self.x = jones_map.x
             self.y = jones_map.y
             J = jones_map.map
-            self.map = np.empty((self.shape[0],
-                                 self.shape[1],
-                                 self.x.size,
-                                 self.y.size),
-                                dtype='float')
+            self.map = np.empty(self.shape + (self.x.size, self.y.size),
+                                dtype=self.data_type)
             for x in range(self.x.size):
                 for y in range(self.y.size):
                     J_xy = np.mat(J[:, :, x, y])
