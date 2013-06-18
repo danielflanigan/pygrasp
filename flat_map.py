@@ -3,6 +3,7 @@ from __future__ import division
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.integrate import trapz
 
 from pygrasp.output import load_grd, save_grd
 
@@ -16,13 +17,23 @@ class FlatMap(object):
     # Subclasses should define these.
     shape = ()
     data_type = None
-    key = {}
+    keys = {}
 
     def __init__(self):
         self.x = np.array([0.])
         self.y = np.array([0.])
-        self.map = np.zeros(self.shape + (self.x.size, self.y.size),
+        self.map = np.zeros((self.x.size, self.y.size) + self.shape,
                             dtype=self.data_type)
+
+    # Improve exception raising.
+    def __getitem__(self, key):
+        try:
+            use = int(self.keys.get(key, key)),
+        except (ValueError, TypeError):
+            use = tuple(int(self.keys.get(k, k)) for k in key)
+        if len(use) != len(self.shape):
+            raise ValueError("Key {!r} does not match map shape {!r}".format(key, self.shape))
+        return self.map[(slice(None), slice(None)) + use]
 
     def dx(self):
         """
@@ -38,13 +49,14 @@ class FlatMap(object):
 
     def recenter(self, x, y):
         """
-        Set the map center to the new coordinates, preserving all
-        other aspects of the pixelization.
+        Shift the map (0, 0) point to the given coordinates,
+        preserving all other aspects of the pixelization. The given
+        coordinates do not have to be within the map bounds.
         """
         x0 = (self.x[-1] + self.x[0]) / 2
         y0 = (self.y[-1] + self.y[0]) / 2
-        self.x += x - x0
-        self.y += y - y0
+        self.x -= x - x0
+        self.y -= y - y0
 
     def indices(self, x, y, clip=False):
         """
@@ -124,7 +136,7 @@ class FlatMap(object):
         mueller = MuellerMap().load_npy('/saved/mueller/map/folder')
         """
         map = np.load(os.path.join(folder, 'map.npy'))
-        if map.shape[:2] != self.shape:
+        if map.shape[2:] != self.shape:
             raise ValueError("Array shape {} does not match map shape {}.".format(map.shape, self.shape))
         if map.dtype != self.data_type:
             raise ValueError("Array data type {} does not match map data type {}.".format(map.dtype, self.data_type))
@@ -153,13 +165,14 @@ class FlatMap(object):
         coadded = cls()
         coadded.x = np.linspace(x_min, x_max, nx)
         coadded.y = np.linspace(y_min, y_max, ny)
-        coadded.map = np.zeros((cls.shape[0], cls.shape[1], nx, ny),
-                               dtype=cls.data_type)
+        coadded.map = np.zeros((nx, ny) + cls.shape, dtype=cls.data_type)
         for m in maps:
             i_x, i_y, within = coadded.indices(m.x, m.y)
-            coadded.map[:, :, i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += m.map
+            # This uses broadcasting
+            coadded.map[i_x[0]:i_x[-1]+1, i_y[0]:i_y[-1]+1] += m.map
         return coadded
 
+    # In progress
     def make_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot, vmin=None, vmax=None):
         """
         Return a plot of the given array with horizontal axis self.x
@@ -172,19 +185,25 @@ class FlatMap(object):
         if vmax is None:
             vmax = np.max(a)
         plt.ioff()
-        fig = plt.figure()
-        plt.imshow(a.T,
-                   cmap=color,
-                   aspect='equal',			 
-                   interpolation='nearest',
-                   vmin=vmin,
-                   vmax=vmax,
-                   origin='lower',
-                   extent=(self.x[0], self.x[-1], self.y[0], self.y[-1]))
-        plt.colorbar()
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
+        w = 3.5
+        h = 3
+        fig = plt.figure(figsize=(w, h), dpi=200)
+        cbar_ax = fig.add_axes((2.9/w, 0.4/h, 0.1/w, 2.3/h))
+        cbar_ax.tick_params(direction='out', labelsize=4)
+        image_ax = fig.add_axes((0.5/w, 0.4/h, 2.3/w, 2.3/h))
+        image_ax.tick_params(direction='out', labelsize=4)
+        image = image_ax.imshow(a.T,
+                                cmap=color,
+                                aspect='equal',
+                                interpolation='nearest',
+                                vmin=vmin,
+                                vmax=vmax,
+                                origin='lower',
+                                extent=(self.x[0], self.x[-1], self.y[0], self.y[-1]))
+        fig.colorbar(image, cax=cbar_ax)
+        fig.suptitle(title)
+        image_ax.set_xlabel(xlabel)
+        image_ax.set_ylabel(ylabel)
         return fig
 
     def show_plot(self, a, title="", xlabel="", ylabel="", color=plt.cm.hot, vmin=None, vmax=None):
@@ -255,7 +274,14 @@ class FlatMap(object):
         else:
             plt.close()
 
-    def cut(self, a, angle, center=(0, 0), single_sided=False):
+    def cut(self, map_or_component, angle, center=(0, 0), single_sided=False):
+        """
+        Document me!
+        """
+        try:
+            map = self[map_or_component]
+        except TypeError:
+            map = map_or_component
         angle = np.mod(angle, 2 * np.pi)
         # This shifts the line slightly, but ensures that the center
         # pixel is always part of the cut.
@@ -277,11 +303,21 @@ class FlatMap(object):
         i_y = i_y[within]
         nonnegative = nonnegative[within]
         r = np.sqrt((self.x[i_x]-x0)**2 + (self.y[i_y]-y0)**2) * np.where(nonnegative, 1, -1)
-        cut = a[i_x, i_y]
+        cut = map[i_x, i_y]
         if single_sided:
             return r[nonnegative], cut[nonnegative]
         else:
             return r, cut
+
+    def integrate(self, map_or_component):
+        """
+        Document me!
+        """
+        try:
+            map = self[map_or_component]
+        except TypeError:
+            map = map_or_component
+        return trapz(trapz(map, self.y, 1), self.x, 0)
 
 
 class GridMap(FlatMap):
@@ -305,7 +341,7 @@ class GridMap(FlatMap):
 
     def load_grd(self, filename):
         self.meta, self.map = load_grd(filename)
-        self.shape = self.map.shape[:2]
+        self.shape = self.map.shape[2:]
         # Check that XS and XE are offsets.
         self.x = self.meta['XCEN'] + np.linspace(self.meta['XS'], self.meta['XE'], self.meta['NX'])
         self.y = self.meta['YCEN'] + np.linspace(self.meta['YS'], self.meta['YE'], self.meta['NY'])
@@ -313,7 +349,7 @@ class GridMap(FlatMap):
     def save_grd(self, filename):
         save_grd(filename, self.meta, self.map)
 
-    def load_npy(self, folder, shape):
+    def load_npy(self, folder, components=2):
         """
         Load x.npy, y.npy, and map.npy arrays from the given
         folder. Shape is a tuple of length 2 that must match
@@ -321,24 +357,38 @@ class GridMap(FlatMap):
         different shapes depending on the number of components in the
         grid.
         """
-        self.shape = shape
+        self.shape = (components,)
         return super(GridMap, self).load_npy(folder)
 
     def dB(self, component):
         """
         Return the given map component in decibels.
         """
-        return 20 * np.log10(abs(self.map[component, 0]))
+        return 20 * np.log10(abs(self[component]))
+
+
+# Determine whether these are useful.
+class UVFarGrid(GridMap):
+    shape = (2,)
+    keys = {'u': 0,
+            'v': 1}
+
+
+class UVNearGrid(GridMap):
+    shape = (3,)
+    keys = {'u': 0,
+            'v': 1,
+            'r': 2}
 
 
 class JonesMap(FlatMap):
 
     shape = (2, 2)
     data_type = np.complex
-    key = {0: 'co', 'co': 0,
-           1: 'cx', 'cx': 1}
+    keys = {'co': 0,
+            'cx': 1}
 
-    def __init__(self, co=None, cx=None):
+    def __init__(self, co=None, cx=None, normalize=True):
         """
         Create a new empty JonesMap or create one from two GridMap instances.
         """
@@ -347,36 +397,45 @@ class JonesMap(FlatMap):
         else:
             if not all(co.x == cx.x):
                 raise ValueError("Map x values differ.")
-            self.x = co.x
+            self.x = co.x.copy()
             if not all(co.y == cx.y):
-                raise ValueError("Map y values dziffer.")
-            self.y = co.y
+                raise ValueError("Map y values differ.")
+            self.y = co.y.copy()
             # Create a Jones matrix map with
-            # map.shape = (2, 2, x.size, y.size)
-            self.map = np.array([[co.map[0, 0], cx.map[0, 0]],
-                                 [co.map[1, 0], cx.map[1, 0]]])
+            # map.shape = (x.size, y.size, 2, 2)
+            self.map = np.empty((self.x.size, self.y.size) + self.shape,
+                                dtype=self.data_type)
+            self.map[:, :, :, 0] = co.map.copy()
+            self.map[:, :, :, 1] = cx.map.copy()
+            # If each feed is normalized to radiate 4 pi W total, then
+            # this normalization produces Jones matrices such that
+            # sum(abs(jones[0, 0])**2) + sum(abs(jones[1, 0])**2) \lesssim 1,
+            # sum(abs(jones[0, 1])**2) + sum(abs(jones[1, 1])**2) \lesssim 1,
+            # and Mueller matrices made from this Jones matrix satisfy
+            # sum(mueller[i, i]) \lesssim 1
+            # for i in (0, 1, 2, 3); that is, the integrals of the
+            # diagonal maps should be nearly 1.
+            if normalize:
+                self.map /= np.sqrt(4 * np.pi)
 
-    # It's not clear what this means.
-    def invert(self):
-        map = np.empty((self.map.shape))
-        for x in range(self.x.size):
-            for y in range(self.y.size):
-                map[:, :, x, y] = np.mat(self.map[:, :, x, y]).getI()
-        self.map = map
-
-
+    def dB(self, component):
+        """
+        Return the given map component in decibels.
+        """
+        return 20 * np.log10(abs(self[component]))
+    
 class MuellerMap(FlatMap):
 
-    # This is the shape of the matrix at each pixel.
     shape = (4, 4)
-    # This is the map data type.
     data_type = np.float
-
-    # This is the mapping between array indices and Stokes parameters.
-    key = {0: 'T', 'T': 0,
-           1: 'Q', 'Q': 1,
-           2: 'U', 'U': 2,
-           3: 'V', 'V': 3}
+    keys = {'T': 0,
+            'Q': 1,
+            'U': 2,
+            'V': 3}
+    inverse_keys = {0: 'T',
+                    1: 'Q',
+                    2: 'U',
+                    3: 'V'}
 
     A = np.mat(np.array([[1,   0,   0,   1],
                          [1,   0,   0,  -1],
@@ -391,55 +450,39 @@ class MuellerMap(FlatMap):
         if jones_map is None:
             super(MuellerMap, self).__init__()
         else:
-            self.x = jones_map.x
-            self.y = jones_map.y
+            self.x = jones_map.x.copy()
+            self.y = jones_map.y.copy()
             J = jones_map.map
-            self.map = np.empty(self.shape + (self.x.size, self.y.size),
+            self.map = np.empty((self.x.size, self.y.size) + self.shape,
                                 dtype=self.data_type)
             for x in range(self.x.size):
                 for y in range(self.y.size):
-                    J_xy = np.mat(J[:, :, x, y])
+                    J_xy = np.mat(J[x, y])
                     # The matrix cast is redundant since numpy takes *
                     # to mean matrix multiplication when either element
                     # is a matrix.
                     M_xy = self.A * np.mat(np.kron(J_xy, J_xy.conj())) * self.AI
                     if np.any(M_xy.imag):
                         raise ValueError("Nonzero complex value in M.")
-                    self.map[:, :, x, y] = M_xy.real
+                    self.map[x, y] = M_xy.real
 
-    # Figure out what this means.
-    def inverse_from_jones(self, jones_map):
-        self.x = jones_map.x
-        self.y = jones_map.y
-        J = jones_map.map
-        self.map = np.empty((4, 4, self.x.size, self.y.size), dtype='float')
-        for x in range(self.x.size):
-            for y in range(self.y.size):
-                J_xy = np.mat(J[:, :, x, y])
-                M_xy = np.mat(self.A * np.kron(J_xy, J_xy.conj()) * self.AI).getI()
-                if np.any(M_xy.imag):
-                    raise ValueError("Nonzero complex value in M.")
-                self.map[:, :, x, y] = M_xy.real
-        
     # Figure out how to create a title and axes labels.
-    def contour_tile(self, color=None):
+    def contour_tile(self, color=None, suptitle="", figsize=(5, 5.5)):
         plt.ioff()
-        fig = plt.figure(figsize=(8, 8))
+        fig = plt.figure(figsize=figsize)
+        plt.suptitle(suptitle)
         for i in range(4):
             for j in range(4):
                 # Verify.
-                name = self.key[i] + self.key[j]
+                name = self.inverse_keys[i] + self.inverse_keys[j]
                 sub = plt.subplot(4, 4, 4 * i + j + 1)
                 sub.axes.get_xaxis().set_visible(False)
                 sub.axes.get_yaxis().set_visible(False)
-                a = self.map[i, j]
-                c=np.linspace(np.min(a.flatten()),
-                              np.max(a.flatten()),
-                              8)
+                c=np.linspace(np.min(self[i, j]), np.max(self[i, j]), 8)
                 if all(c == 0):
                     plt.plot()
                 else:
-                    plt.contour(a.T,
+                    plt.contour(self[i, j].T,
                                 contours=c,
                                 cmap=color)
                 sub.title.set_text(name)
@@ -447,17 +490,17 @@ class MuellerMap(FlatMap):
         plt.show()
         return fig
 
-    def plot_tile(self, color=None):
+    def plot_tile(self, color=None, suptitle="", figsize=(5, 5.5)):
         plt.ioff()
-        fig = plt.figure(figsize=(8, 8))
+        fig = plt.figure(figsize=figsize)
+        plt.suptitle(suptitle)
         for i in range(4):
             for j in range(4):
-                name = self.key[i] + self.key[j]
+                name = self.inverse_keys[i] + self.inverse_keys[j]
                 sub = plt.subplot(4, 4, 4 * i + j + 1)
                 sub.axes.get_xaxis().set_visible(False)
                 sub.axes.get_yaxis().set_visible(False)
-                a = self.map[i, j]
-                plt.imshow(a.T,
+                plt.imshow(self[i, j].T,
                            cmap=color,
                            aspect='equal',			 
                            interpolation='nearest',
