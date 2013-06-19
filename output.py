@@ -10,9 +10,16 @@ from __future__ import division
 import os
 import numpy as np
 
-# This two functions handle numbers that have three-digit exponents,
+# These two functions handle numbers that have three-digit exponents,
 # which GRASP writes as, e.g., 0.123456789-100 for 1.23456789E-99
 # To do: match GRASP format.
+# Each number uses
+# 1 blank space
+# 1 minus sign or blank
+# 12 characters for the mantissa:
+# 0.xxxxxxxxxx
+# 4 characters for the exponent:
+# E+xx, E-xx, +xxx, or -xxx
 def string_to_float(string):
     try:
         return float(string)
@@ -90,9 +97,11 @@ def load_grd(filename):
     meta['XCEN'] = meta['DX'] * meta['IX']
     meta['YCEN'] = meta['DY'] * meta['IY']
     # Reshape the data.
-    map = np.array([[(data[:, 2 * column] +
-                      1j * data[:, 2 * column + 1]).reshape(meta['NX'], meta['NY'], order='F')]
-                    for column in range(meta['NCOMP'])])
+    map = np.empty((meta['NX'], meta['NY'], meta['NCOMP']),
+                   dtype=np.complex)
+    for component in range(meta['NCOMP']):
+        column = data[:, 2 * component] + 1j * data[:, 2 * component + 1]
+        map[:, :, component] = column.reshape(meta['NX'], meta['NY'], order='F')
     return meta, map
 
 def save_grd(filename, meta, map):
@@ -101,14 +110,14 @@ def save_grd(filename, meta, map):
     """
     if os.path.exists(filename):
         raise ValueError("File already exists: {}".format(filename))
-    if map.shape != (meta['NCOMP'], 1, meta['NX'], meta['NY']):
+    if map.shape != (meta['NX'], meta['NY'], meta['NCOMP']):
         raise ValueError("The map shape does not match the metadata dictionary.")
     points = meta['NX'] * meta['NY']
     components = meta['NCOMP']
     data = np.empty((points, 2 * components))
     for component in range(components):
-        data[:, 2 * component] = map[component, 0].reshape(points, order='F').real
-        data[:, 2 * component + 1] = map[component, 0].reshape(points, order='F').imag
+        data[:, 2 * component] = map[:, :, component].reshape(points, order='F').real
+        data[:, 2 * component + 1] = map[:, :, component].reshape(points, order='F').imag
     with open(filename, 'w') as f:
         for line in meta['header']:
             f.write('{}\n'.format(line))
@@ -117,5 +126,5 @@ def save_grd(filename, meta, map):
         f.write('{:12d}{:12d}\n'.format(meta['IX'], meta['IY']))
         f.write(' {: 0.10E} {: 0.10E} {: 0.10E} {: 0.10E}\n'.format(meta['XS'], meta['YS'], meta['XE'], meta['YE']))
         f.write('{:12d}{:12d}{:12d}\n'.format(meta['NX'], meta['NY'], meta['KLIMIT']))
-        for p in range(data.shape[0]):
+        for p in range(points):
             f.write(''.join([float_to_string(number) for number in data[p, :]]) + '\n')
