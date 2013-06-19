@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from pygrasp.flat_map import GridMap
 from pygrasp.convert import Convert
 
+
 def plot_radial_cut(grid_map, component, angle, center=(0, 0)):
     x_deg, y_deg, cut = grid_map.cut(grid_map.dB(component), angle, center=center, single_sided=True)
     r_deg = np.sqrt(x_deg**2 + y_deg**2)
@@ -45,6 +46,7 @@ def mirror_x(half):
     full.map[:, :, half.x.size:, :] = half.map[:, :, 1:, :]
     return full
 
+# This is useful enough that it should be somewhere else.
 def u_v_to_degrees(gm):
     gm.x = np.degrees(Convert.u_v_to_theta_phi(gm.x, 0)[0] * np.sign(gm.x))
     gm.y = np.degrees(Convert.u_v_to_theta_phi(gm.y, 0)[0] * np.sign(gm.y))
