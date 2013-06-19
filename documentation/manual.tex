@@ -22,9 +22,7 @@ The other configuration involves a half-wave plate (HWP). In this configuration,
 
 \section*{Conventions.}
 
-The GRASP convention is that the fields and currents carry time dependence $\me^{\mathrm{j} \omega t}$. I'll use $\me^{\mi \omega t}$ throughout. This is the opposite of the most common convention in physics texts, where the phase of a plane wave is usually given by $\mi (\vec{k} \cdot \vec{r} - \omega t)$. This is most important for understanding the directions of circular polarization.
-
-Both modern physics and engineering use the same convention for circular polarization, which is the opposite of the optics convention. 
+The GRASP convention is that the fields and currents carry time dependence $\me^{\mathrm{j} \omega t}$. I'll use $\me^{\mi \omega t}$ throughout. This is the opposite of the most common convention in physics texts, where the phase of a plane wave is usually given by $\mi (\vec{k} \cdot \vec{r} - \omega t)$. Both modern physics and engineering use the same convention for circular polarization, which is the opposite of the optics convention. 
 
 The modern physics convention matches the definition of spin for other particles: positive helicity (right circular polarized) light carries angular momentum with a positive projection along the positive axis of propagation, and for negative helicity (left circular polarized) light the projection of angular momentum is opposite the direction of propagation. This is clearly superior to the optics convention, which switches left and right. Fortunately, GRASP uses the modern physics convention, as I will here. To minimize confusion I'll use only the terms positive and negative helicity.
 
@@ -38,8 +36,9 @@ GRASP can report linear polarization according to the Ludwig-3 definition, which
 \hat{\vec{e}}_{\text{cx}} & \equiv \hat{\vec{\theta}} \sin \phi + \hat{\vec{\phi}} \cos \phi.
 \end{align*}
 
-GRASP also refers to $\hat{\vec{e}}_{co}$ as $\vec{u}$ and to $\hat{\vec{e}}_{cx}$ as $\vec{v}$. Near the positive $z$-axis, with $\theta \approx 0$, $\hat{\vec{e}}_{\text{co}} \approx \hat{\vec{x}}$ and $\hat{\vec{e}}_{\text{cx}} \approx \hat{\vec{y}}$. When plotting the electric fields in a grid, GRASP by default chooses right-handed axes labeled U and V, where in the grid coordinate system U corresponds to $x$ and V corresponds to $y$. This is equivalent to looking at the radiation pattern from the storage grid back toward the radiating feed. We want to plot in the opposite orientation, where we look from behind the feed at the beam on the sky.
+GRASP also refers to $\hat{\vec{e}}_{co}$ as $\vec{u}$ and to $\hat{\vec{e}}_{cx}$ as $\vec{v}$. Near the positive $z$-axis, with $\theta \approx 0$, $\hat{\vec{e}}_{\text{co}} \approx \hat{\vec{x}}$ and $\hat{\vec{e}}_{\text{cx}} \approx \hat{\vec{y}}$. When plotting the electric fields in a grid, GRASP by default chooses right-handed axes labeled U and V, where in the grid coordinate system U corresponds to $x$ and V corresponds to $y$. This is equivalent to looking at the radiation pattern from the storage grid back toward the radiating feed.
 
+Using these unit vectors, the circular polarization basis vectors are
 \begin{align*}
 \uvec{e}_{+} = \uvec{e}_{rhc} &= 2^{-1/2} (\uvec{e}_{co} - \mi \uvec{e}_{cx}) \\
 \uvec{e}_{-} = \uvec{e}_{lhc} &= 2^{-1/2} (\uvec{e}_{co} + \mi \uvec{e}_{cx}).
@@ -48,14 +47,38 @@ Because the GRASP time dependence is $\me^{\mi \omega t}$, the positive and nega
 
 \subsection*{Power.}
 
-Figure out normalization to $4 \pi \unit{W}$.
+When power normalization is turned on, the radiation pattern from each feed is normalized to $4 \pi \unit{W}$, meaning that
+\begin{equation*}
+P_{\text{total}} = \iint_{4 \pi} | \vec{E}(\theta, \phi) |^{2} \dif \Omega = 4 \pi \unit{W},
+\end{equation*}
+where $\bar{E}$ is the far field and the integration is over the entire sphere. A simulation of the far field of an optical system generally produces a storage grid that covers only part of the sphere, often a very small part. GRASP calculates the field at each of the grid points, and separates it into two projections along the given basis vectors tangent to the sphere.
+
+In the far field, the radiated power per solid angle is independent of distance from the source. The electric fields calculated by GRASP have units $\text{W}^{1/2}$, but in this case it seems that the units should be $\text{(W / sr)}^{1/2}$ so that the integral of $|\vec{E}|^{2}$ over the sphere has units of watts.  Assuming that the field is well-sampled, it should be approximately constant over the area of a pixel. If the grid indices are $\alpha, \beta$, then
+\begin{equation*}
+P_{\text{grid}} = \sum_{\alpha, \beta} | \vec{E}_{\alpha, \beta} |^{2} \Delta x_{\alpha} \, \Delta y_{\beta},
+\end{equation*}
+where $x$ and $y$ represent the coordinates, possibly non-Cartesian, in which the map is computed and the quantity $\Delta x_{\alpha} \, \Delta y_{\beta}$ is the area of a pixel in these coordinates. Unless the map is calculated near a pole of the coordinate system, in the flat sky limit all pixels will have the same area $\Delta x \Delta y$. The fractional spillover is thus $1 - P_{\text{grid}} / 4 \pi \unit{W}$, which is the fraction of power that radiates to areas of the sphere other than the storage grid or is absorbed in an optical component. 
+
+In some orthonormal coordinate system, a Jones matrix $\vec{J}$ transforms an electric field $\vec{E} = \binom{E_{u}}{E_{v}}$ into a different electric field
+\begin{equation*}
+\vec{E}' = \vec{J} \vec{E},
+\end{equation*}
+so the elements of $\vec{J}$ are dimensionless. To characterize an optical instrument we form $n_{x} \times n_{y} \times 2 \times 2$ Jones matrix maps $\vec{J}(x, y)$ that have the following meaning: the two components of the initial field $\vec{E}$ represent the field amplitudes of orthogonal waveguide modes, and an element $(x, y)$ of the Jones matrix gives the resulting far field
+\begin{equation*}
+\vec{E}'(x, y) = \vec{J}(x, y) \vec{E}.
+\end{equation*}
+By the previous argument, the units of this type of Jones matrix are $\text{sr}^{-1/2}$. A simulation of the far field radiation pattern of a single polarization of a feed mode produces co-pol and cross-pol maps in a particular coordinate system. If the feed pattern for a given polarization is normalized to radiate a total of $4 \pi \unit{W}$ over the whole sphere, then this is the total power entering the optical system. 
+
+
 \section*{Brad's simulations.}
 
 \subsection*{Grid centers.}
 
+The focal plane positions of the feeds are given in millimeters in the files \texttt{v6/dat\_files/HF\_xxx.dat}, where \texttt{xxx} is the frequency. There are some differences between between the coordinate systems defined in this file and the .tor files used in the simulations: in particular, the file defines coordinate systems \texttt{Beam\_Coor\_Sys\_xxx} that depend on \texttt{Coor\_Sys\_Cut\_1}, while the .tor files define these coordinate systems relative to \texttt{Coor\_Sys\_Subrefl\_1}.
+
 Brad's \texttt{make\_sky\_beam\_centers.pro} computes the plate scale $s = 1 / f_{\text{eff}}$, where $f_{\text{eff}}$ is the effective focal length of the instrument. For the low-frequency instrument at $97 \unit{GHz}$ the effective focal length is $2961.05 \unit{mm}$, and for the high-frequency instrument at $150 \unit{GHz}$ and $225 \unit{GHz}$ it is $2700 \unit{mm}$. \textbf{Figure out how to compute $f_{\text{eff}}$.} The plate scale has dimensions $\unit{radians} \unit{length}^{-1}$.
 
-For a feed centered at position $(x_{n}, y_{n})$, with $(0, 0)$ at the center of symmetry of the focal plane, the radial distance is $r_{n} = \sqrt{x_{n}^{2} + y_{n}^{2}}$. The zenith angle from boresight is $\theta_{n} = r_{n} * s$, and the azimuth angle relative to the $x$-coordinate is $\phi_{n} = \arctan(y_{n} / x_{n})$, wrapped to $[0, 2 \pi]$. Note that this is the correct angle for a right-handed coordinate system.
+For a feed centered at position $(x_{n}, y_{n})$, with $(0, 0)$ at the center of symmetry of the focal plane, the radial distance is $r_{n} = \sqrt{x_{n}^{2} + y_{n}^{2}}$. The zenith angle from boresight is $\theta_{n} = r_{n} s$, and the azimuth angle relative to the $x$-coordinate is $\phi_{n} = \arctan(y_{n} / x_{n})$, wrapped to $[0, 2 \pi)$. Note that this is the correct angle for a right-handed coordinate system.
 
 The values saved in \texttt{sky\_beam\_centers.pro} are converted approximately to angles in degrees using
 \begin{equation*}
