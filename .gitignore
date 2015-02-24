@@ -4,8 +4,5 @@
 # Files and directories specific to pygrasp 
 documentation/
 epydoc/
-projects/
-sandbox/
 misc/
-scripts/
 local.config
